@@ -1,0 +1,79 @@
+# Gaming Niche Configuration
+
+name: "gaming"
+display_name: "Gaming"
+description: "Video games, gaming news, tips, and entertainment"
+
+# Keywords for topic discovery
+keywords:
+  - "new game release"
+  - "gaming news"
+  - "game review"
+  - "gaming tips"
+  - "best games"
+  - "game walkthrough"
+  - "gaming setup"
+  - "esports"
+  - "game update"
+  - "DLC"
+
+# Seed topics
+seed_topics:
+  - "new game releases 2025"
+  - "best indie games"
+  - "gaming setup guide"
+  - "game tips and tricks"
+
+# Source configuration
+sources:
+  google_trends:
+    enabled: true
+    weight: 0.6
+    region: "US"
+    timeframe: "now 7-d"
+    category: 8  # Games category
+
+  reddit:
+    enabled: true
+    weight: 0.4
+    subreddits:
+      - "gaming"
+      - "Games"
+      - "pcgaming"
+      - "PS5"
+      - "XboxSeriesX"
+      - "NintendoSwitch"
+      - "Steam"
+    min_upvotes: 100
+    time_filter: "week"
+
+# Scoring thresholds
+thresholds:
+  min_search_volume: 3000
+  max_competition: 0.75
+  min_opportunity_score: 60.0
+  min_trend_score: 45.0
+
+# Format preferences
+formats:
+  preferred:
+    - "tutorial"
+    - "review"
+    - "listicle"
+    - "entertainment"
+  excluded: []
+
+# Regional settings
+regional:
+  target_regions:
+    - "US"
+    - "GB"
+    - "CA"
+  target_languages:
+    - "en"
+
+# Custom settings
+custom:
+  focus_on_new_releases: true
+  include_retro: false
+  platform_agnostic: true

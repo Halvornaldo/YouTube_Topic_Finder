@@ -1,0 +1,80 @@
+# AI & Technology Niche Configuration
+
+name: "ai_tech"
+display_name: "AI & Technology"
+description: "Artificial Intelligence, Machine Learning, and emerging tech topics"
+
+# Keywords for topic discovery
+keywords:
+  - "artificial intelligence"
+  - "machine learning"
+  - "AI tools"
+  - "ChatGPT"
+  - "generative AI"
+  - "deep learning"
+  - "neural networks"
+  - "AI automation"
+  - "LLM"
+  - "stable diffusion"
+  - "midjourney"
+  - "AI image generation"
+
+# Seed topics (optional predefined topics)
+seed_topics:
+  - "AI video generators"
+  - "ChatGPT alternatives"
+  - "AI coding assistants"
+  - "AI image tools comparison"
+
+# Source configuration
+sources:
+  google_trends:
+    enabled: true
+    weight: 0.6
+    region: "US"
+    timeframe: "now 7-d"  # Last 7 days
+    category: 0  # All categories
+
+  reddit:
+    enabled: true
+    weight: 0.4
+    subreddits:
+      - "artificial"
+      - "MachineLearning"
+      - "OpenAI"
+      - "StableDiffusion"
+      - "singularity"
+      - "ArtificialInteligence"
+    min_upvotes: 50
+    time_filter: "week"  # week, month, year, all
+
+# Scoring thresholds
+thresholds:
+  min_search_volume: 1000
+  max_competition: 0.7
+  min_opportunity_score: 60.0
+  min_trend_score: 40.0
+
+# Format preferences
+formats:
+  preferred:
+    - "tutorial"
+    - "comparison"
+    - "explainer"
+  excluded:
+    - "vlog"
+
+# Regional settings
+regional:
+  target_regions:
+    - "US"
+    - "GB"
+    - "CA"
+  target_languages:
+    - "en"
+
+# Custom settings
+custom:
+  focus_on_tools: true
+  include_news: true
+  beginner_friendly: true

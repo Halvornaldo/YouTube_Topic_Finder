@@ -1,0 +1,79 @@
+# Tech News Niche Configuration
+
+name: "tech_news"
+display_name: "Tech News"
+description: "Technology news, product launches, and industry updates"
+
+# Keywords for topic discovery
+keywords:
+  - "tech news"
+  - "Apple announcement"
+  - "Google release"
+  - "Microsoft update"
+  - "product launch"
+  - "tech review"
+  - "new features"
+  - "software update"
+  - "gadget release"
+
+# Seed topics
+seed_topics:
+  - "Apple event"
+  - "Google I/O"
+  - "Microsoft Build"
+  - "new iPhone features"
+
+# Source configuration
+sources:
+  google_trends:
+    enabled: true
+    weight: 0.5
+    region: "US"
+    timeframe: "now 7-d"
+    category: 19  # Science & Tech category
+
+  reddit:
+    enabled: true
+    weight: 0.5
+    subreddits:
+      - "technology"
+      - "tech"
+      - "apple"
+      - "google"
+      - "microsoft"
+      - "gadgets"
+      - "Android"
+    min_upvotes: 100
+    time_filter: "week"
+
+# Scoring thresholds
+thresholds:
+  min_search_volume: 2000
+  max_competition: 0.8
+  min_opportunity_score: 55.0
+  min_trend_score: 50.0
+
+# Format preferences
+formats:
+  preferred:
+    - "news"
+    - "review"
+    - "explainer"
+  excluded:
+    - "vlog"
+
+# Regional settings
+regional:
+  target_regions:
+    - "US"
+    - "GB"
+    - "CA"
+    - "AU"
+  target_languages:
+    - "en"
+
+# Custom settings
+custom:
+  focus_on_launches: true
+  include_rumors: false
+  professional_tone: true

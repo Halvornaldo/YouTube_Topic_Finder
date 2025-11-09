@@ -1,0 +1,71 @@
+# Trending & Viral Content Niche Configuration
+
+name: "trending_viral"
+display_name: "Trending & Viral"
+description: "Fast-moving trending topics and viral content opportunities"
+
+# Keywords for topic discovery
+keywords:
+  - "trending"
+  - "viral"
+  - "latest news"
+  - "breaking"
+  - "what's happening"
+  - "popular now"
+  - "everyone is talking about"
+
+# Seed topics
+seed_topics:
+  - "viral challenges"
+  - "trending memes"
+  - "internet drama"
+
+# Source configuration
+sources:
+  google_trends:
+    enabled: true
+    weight: 0.7
+    region: "US"
+    timeframe: "now 1-d"  # Last 24 hours for trending
+    category: 0
+
+  reddit:
+    enabled: true
+    weight: 0.3
+    subreddits:
+      - "all"
+      - "popular"
+      - "trending"
+      - "videos"
+      - "PublicFreakout"
+      - "nextfuckinglevel"
+    min_upvotes: 500  # Higher threshold for viral
+    time_filter: "day"
+
+# Scoring thresholds
+thresholds:
+  min_search_volume: 5000  # Higher for viral content
+  max_competition: 0.9  # Less concerned about competition for trending
+  min_opportunity_score: 50.0  # Lower score acceptable if very trending
+  min_trend_score: 70.0  # Must be highly trending
+
+# Format preferences
+formats:
+  preferred:
+    - "news"
+    - "explainer"
+    - "listicle"
+  excluded: []
+
+# Regional settings
+regional:
+  target_regions:
+    - "US"
+  target_languages:
+    - "en"
+
+# Custom settings
+custom:
+  speed_priority: true  # Act fast on trending topics
+  recency_weight: 0.8  # Heavy weight on how recent
+  virality_threshold: 100000  # Min views for viral indicator
