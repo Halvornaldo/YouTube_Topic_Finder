@@ -57,8 +57,13 @@ echo.
 
 REM Run migrations
 echo Running database migrations...
-alembic upgrade head
-echo Database initialized
+call venv\Scripts\activate.bat
+call alembic upgrade head
+if %errorlevel% neq 0 (
+    echo WARNING: Database migration failed. Make sure virtual environment is activated.
+    echo You can run migrations manually: venv\Scripts\activate.bat then alembic upgrade head
+)
+echo Database setup complete
 echo.
 
 echo =========================================

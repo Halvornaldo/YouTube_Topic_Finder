@@ -40,8 +40,8 @@ praw==7.7.1
 python-dotenv==1.0.0
 pyyaml==6.0.1
 requests==2.31.0
-pandas==2.1.4
-numpy==1.26.3
+# pandas>=2.2.0  # Optional: Uncomment if needed (requires C++ compiler on Python 3.13)
+# numpy>=1.26.0  # Optional: Uncomment if needed (requires C++ compiler on Python 3.13)
 
 # Logging and monitoring
 python-json-logger==2.0.7
