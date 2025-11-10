@@ -8,6 +8,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: youtube_topic_finder
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256  # Force password authentication
     ports:
       - "5433:5432"  # Use port 5433 to avoid conflict with local PostgreSQL
     volumes:
