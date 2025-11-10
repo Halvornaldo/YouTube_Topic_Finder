@@ -1,6 +1,6 @@
 """Niche configuration model - loaded YAML configurations."""
 
-from sqlalchemy import Column, String, Text, JSON, Float
+from sqlalchemy import Column, String, Text, JSON, Float, Integer
 from src.models.base import Base, TimestampMixin
 
 
