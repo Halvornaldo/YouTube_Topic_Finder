@@ -1,26 +1,7 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: ytf_postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: youtube_topic_finder
-      POSTGRES_HOST_AUTH_METHOD: scram-sha-256  # Force password authentication
-    ports:
-      - "5433:5432"  # Use port 5433 to avoid conflict with local PostgreSQL
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
+  # Redis for caching and job queues
   redis:
     image: redis:7-alpine
     container_name: ytf_redis
@@ -29,12 +10,12 @@ services:
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
+      timeout: 5s
+      retries: 3
 
   # Optional: Redis Commander for Redis GUI
   redis-commander:
@@ -50,28 +31,10 @@ services:
     profiles:
       - tools
 
-  # Optional: PgAdmin for PostgreSQL GUI
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: ytf_pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@youtube-topic-finder.local
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "5050:80"
-    depends_on:
-      - postgres
-    restart: unless-stopped
-    profiles:
-      - tools
-
 volumes:
-  postgres_data:
-    driver: local
   redis_data:
     driver: local
 
-networks:
-  default:
-    name: ytf_network
+# Note: PostgreSQL is now hosted on Supabase cloud
+# No local PostgreSQL container needed
+# Dashboard: https://supabase.com/dashboard/project/etaacgjaghqoorbrfqzh

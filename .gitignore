@@ -95,3 +95,6 @@ output/
 results/
 exports/
 pgdata/
+
+# Prevent nested duplicate folder
+YouTube_Topic_Finder/

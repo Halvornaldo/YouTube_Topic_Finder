@@ -6,18 +6,16 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
 from typing import Generator
 from src.models.base import Base
+from src.config.settings import settings
 
-# Database URL from environment variable
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/youtube_topic_finder"
-)
+# Database URL from settings (which properly loads .env)
+DATABASE_URL = settings.DATABASE_URL
 
 # Create engine
 engine = create_engine(
     DATABASE_URL,
     poolclass=NullPool,  # Use NullPool for development
-    echo=os.getenv("SQL_ECHO", "false").lower() == "true",  # Log SQL queries
+    echo=settings.SQL_ECHO,  # Log SQL queries
 )
 
 # Session factory
