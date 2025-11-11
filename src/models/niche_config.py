@@ -49,8 +49,13 @@ class NicheConfig(Base, TimestampMixin):
     config_file_path = Column(String(500), nullable=True)
     config_hash = Column(String(64), nullable=True)  # SHA-256 of file content
 
+    # Template and ownership tracking
+    is_template = Column(Integer, default=0, nullable=False)  # Boolean: is this a read-only template?
+    created_by = Column(String(100), nullable=True)  # 'system', 'user', or user ID
+    version = Column(Integer, default=1, nullable=False)  # Version number for tracking changes
+
     # Status
     is_active = Column(Integer, default=1)  # Boolean
 
     def __repr__(self):
-        return f"<NicheConfig(id={self.id}, niche='{self.niche_name}', active={self.is_active})>"
+        return f"<NicheConfig(id={self.id}, niche='{self.niche_name}', template={bool(self.is_template)}, active={bool(self.is_active)})>"

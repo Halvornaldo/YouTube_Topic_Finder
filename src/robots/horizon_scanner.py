@@ -1,14 +1,26 @@
 """Robot 1: Horizon Scanner - Discovers trending seed topics."""
 
 import logging
+import asyncio
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from pytrends.request import TrendReq
 import praw
 from datetime import datetime
+
 from src.models.seed_topic import SeedTopic, SourceType, TrendStatus
-from src.config.niche_loader import niche_loader, NicheConfig
-from src.config.settings import settings
+from src.models.niche_config import NicheConfig
+from src.models.job_status import JobStatus
+from src.services.config_manager import ConfigManager
+from src.services.event_manager import (
+    broadcast_job_started,
+    broadcast_job_progress,
+    broadcast_job_completed,
+    broadcast_job_failed,
+    broadcast_topic_discovered,
+    broadcast_robot_status
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +34,12 @@ class HorizonScanner:
     - Reddit (praw)
 
     These seed topics will be used by Robot 2 to search for YouTube videos.
+
+    Now integrated with:
+    - Database-first configuration (NicheConfig model)
+    - ConfigManager for settings
+    - JobStatus for progress tracking
+    - EventManager for real-time updates
     """
 
     def __init__(self, db_session: Session):
@@ -32,12 +50,16 @@ class HorizonScanner:
             db_session: Database session
         """
         self.db = db_session
+        self.config_manager = ConfigManager(db_session)
         self.google_trends_client: Optional[TrendReq] = None
         self.reddit_client: Optional[praw.Reddit] = None
+        self.job_id: Optional[int] = None
 
     def _init_google_trends(self):
         """Initialize Google Trends client."""
-        if not settings.ROBOT1_GOOGLE_TRENDS_ENABLED:
+        enabled = self.config_manager.get('robot1.google_trends.enabled', True, 'robot1')
+
+        if not enabled:
             logger.warning("Google Trends disabled in settings")
             return
 
@@ -50,85 +72,205 @@ class HorizonScanner:
 
     def _init_reddit(self):
         """Initialize Reddit client."""
-        if not settings.ROBOT1_REDDIT_ENABLED:
+        enabled = self.config_manager.get('robot1.reddit.enabled', True, 'robot1')
+
+        if not enabled:
             logger.warning("Reddit disabled in settings")
             return
 
-        if not settings.REDDIT_CLIENT_ID or not settings.REDDIT_CLIENT_SECRET:
+        # Get credentials from ConfigManager
+        client_id = self.config_manager.get('reddit.client_id', None, 'api_keys')
+        client_secret = self.config_manager.get('reddit.client_secret', None, 'api_keys')
+        user_agent = self.config_manager.get('reddit.user_agent', 'YouTubeTopicFinder/1.0', 'api_keys')
+
+        if not client_id or not client_secret:
             logger.warning("Reddit credentials not configured")
             return
 
         try:
             self.reddit_client = praw.Reddit(
-                client_id=settings.REDDIT_CLIENT_ID,
-                client_secret=settings.REDDIT_CLIENT_SECRET,
-                user_agent=settings.REDDIT_USER_AGENT,
+                client_id=client_id,
+                client_secret=client_secret,
+                user_agent=user_agent,
             )
             logger.info("Reddit client initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Reddit: {e}")
             self.reddit_client = None
 
-    def run(self, niche_name: str, max_topics: Optional[int] = None) -> Dict:
+    async def run(self, niche_id: int, max_topics: Optional[int] = None) -> Dict:
         """
         Run the Horizon Scanner for a specific niche.
 
         Args:
-            niche_name: Name of the niche to scan
+            niche_id: ID of the niche configuration in database
             max_topics: Maximum number of topics to discover (optional)
 
         Returns:
             Dict with scan results
         """
-        logger.info(f"Starting Horizon Scanner for niche: {niche_name}")
+        logger.info(f"Starting Horizon Scanner for niche ID: {niche_id}")
 
-        # Load niche configuration
-        config = niche_loader.get_config(niche_name)
-        if not config:
-            raise ValueError(f"Niche configuration not found: {niche_name}")
+        # Load niche configuration from database
+        stmt = select(NicheConfig).where(
+            NicheConfig.id == niche_id,
+            NicheConfig.is_active == 1
+        )
+        niche_config = self.db.execute(stmt).scalar_one_or_none()
 
-        max_topics = max_topics or settings.ROBOT1_MAX_TOPICS_PER_RUN
+        if not niche_config:
+            raise ValueError(f"Niche configuration not found or inactive: ID {niche_id}")
 
-        # Initialize clients
-        self._init_google_trends()
-        self._init_reddit()
+        # Get max topics from ConfigManager if not specified
+        if max_topics is None:
+            max_topics = self.config_manager.get('robot1.max_topics_per_run', 50, 'robot1')
 
-        topics_found = []
+        # Create job status record
+        job = JobStatus(
+            job_type='robot1',
+            status='running',
+            config_snapshot={
+                'niche_id': niche_id,
+                'niche_name': niche_config.name,
+                'max_topics': max_topics,
+                'google_trends_enabled': niche_config.google_trends_weight > 0,
+                'reddit_enabled': niche_config.reddit_weight > 0
+            }
+        )
+        job.start()
+        self.db.add(job)
+        self.db.commit()
+        self.db.refresh(job)
+        self.job_id = job.id
 
-        # Scan Google Trends
-        if config.google_trends.get("enabled", True) and self.google_trends_client:
-            logger.info("Scanning Google Trends...")
-            trends_topics = self._scan_google_trends(config)
-            topics_found.extend(trends_topics)
-            logger.info(f"Found {len(trends_topics)} topics from Google Trends")
+        try:
+            # Broadcast job started event
+            await broadcast_job_started(
+                job_id=job.id,
+                job_type='robot1',
+                niche_name=niche_config.name,
+                niche_id=niche_id
+            )
 
-        # Scan Reddit
-        if config.reddit.get("enabled", True) and self.reddit_client:
-            logger.info("Scanning Reddit...")
-            reddit_topics = self._scan_reddit(config)
-            topics_found.extend(reddit_topics)
-            logger.info(f"Found {len(reddit_topics)} topics from Reddit")
+            # Broadcast robot status
+            await broadcast_robot_status(
+                robot='robot1',
+                status='running',
+                niche=niche_config.name
+            )
 
-        # Save topics to database
-        saved_count = self._save_topics(topics_found, niche_name, max_topics)
+            # Update progress: Initializing
+            job.update_progress(5, "Initializing clients")
+            self.db.commit()
+            await broadcast_job_progress(job.id, 5, "Initializing clients")
 
-        logger.info(f"Horizon Scanner completed. Saved {saved_count} topics.")
+            # Initialize clients
+            self._init_google_trends()
+            self._init_reddit()
 
-        return {
-            "status": "completed",
-            "niche": niche_name,
-            "topics_found": len(topics_found),
-            "topics_saved": saved_count,
-            "google_trends": len([t for t in topics_found if t["source"] == SourceType.GOOGLE_TRENDS]),
-            "reddit": len([t for t in topics_found if t["source"] == SourceType.REDDIT]),
-        }
+            topics_found = []
 
-    def _scan_google_trends(self, config: NicheConfig) -> List[Dict]:
+            # Update progress: Scanning sources
+            job.update_progress(10, "Scanning data sources")
+            self.db.commit()
+            await broadcast_job_progress(job.id, 10, "Scanning data sources")
+
+            # Scan Google Trends
+            if niche_config.google_trends_weight > 0 and self.google_trends_client:
+                job.update_progress(15, "Scanning Google Trends")
+                self.db.commit()
+                await broadcast_job_progress(job.id, 15, "Scanning Google Trends")
+
+                logger.info("Scanning Google Trends...")
+                trends_topics = await self._scan_google_trends(niche_config)
+                topics_found.extend(trends_topics)
+                logger.info(f"Found {len(trends_topics)} topics from Google Trends")
+
+                job.update_progress(45, f"Found {len(trends_topics)} topics from Google Trends")
+                self.db.commit()
+                await broadcast_job_progress(job.id, 45, f"Found {len(trends_topics)} topics from Google Trends")
+
+            # Scan Reddit
+            if niche_config.reddit_weight > 0 and self.reddit_client:
+                job.update_progress(50, "Scanning Reddit")
+                self.db.commit()
+                await broadcast_job_progress(job.id, 50, "Scanning Reddit")
+
+                logger.info("Scanning Reddit...")
+                reddit_topics = await self._scan_reddit(niche_config)
+                topics_found.extend(reddit_topics)
+                logger.info(f"Found {len(reddit_topics)} topics from Reddit")
+
+                job.update_progress(80, f"Found {len(reddit_topics)} topics from Reddit")
+                self.db.commit()
+                await broadcast_job_progress(job.id, 80, f"Found {len(reddit_topics)} topics from Reddit")
+
+            # Save topics to database
+            job.update_progress(85, "Saving topics to database")
+            self.db.commit()
+            await broadcast_job_progress(job.id, 85, "Saving topics to database")
+
+            saved_count = await self._save_topics(topics_found, niche_config.name, max_topics)
+
+            # Complete the job
+            job.update_progress(100, "Completed")
+            result_summary = {
+                "topics_found": len(topics_found),
+                "topics_saved": saved_count,
+                "google_trends": len([t for t in topics_found if t["source"] == SourceType.GOOGLE_TRENDS]),
+                "reddit": len([t for t in topics_found if t["source"] == SourceType.REDDIT]),
+            }
+            job.complete(result_summary=result_summary)
+            self.db.commit()
+
+            logger.info(f"Horizon Scanner completed. Saved {saved_count} topics.")
+
+            # Broadcast completion
+            await broadcast_job_completed(
+                job_id=job.id,
+                result_summary=result_summary
+            )
+
+            await broadcast_robot_status(
+                robot='robot1',
+                status='idle',
+                last_run_result=result_summary
+            )
+
+            return {
+                "status": "completed",
+                "job_id": job.id,
+                "niche": niche_config.name,
+                **result_summary
+            }
+
+        except Exception as e:
+            logger.error(f"Error in Horizon Scanner: {e}", exc_info=True)
+
+            # Mark job as failed
+            if job:
+                job.fail(error_message=str(e))
+                self.db.commit()
+
+                await broadcast_job_failed(
+                    job_id=job.id,
+                    error=str(e)
+                )
+
+                await broadcast_robot_status(
+                    robot='robot1',
+                    status='error',
+                    error=str(e)
+                )
+
+            raise
+
+    async def _scan_google_trends(self, config: NicheConfig) -> List[Dict]:
         """
         Scan Google Trends for trending topics.
 
         Args:
-            config: Niche configuration
+            config: Niche configuration from database
 
         Returns:
             List of discovered topics
@@ -136,8 +278,11 @@ class HorizonScanner:
         topics = []
 
         try:
+            # Get region from config or default
+            # Note: In the new system, we'll add region support to NicheConfig model
+            region = "US"  # Default for now
+
             # Get trending searches
-            region = config.google_trends.get("region", "US")
             trending = self.google_trends_client.trending_searches(pn=region)
 
             for topic in trending[0][:20]:  # Top 20 trending
@@ -153,6 +298,8 @@ class HorizonScanner:
                 })
 
             # Get interest over time for keywords
+            min_trend_score = config.min_search_volume / 1000  # Rough approximation
+
             if config.keywords:
                 for keyword in config.keywords[:5]:  # Limit to avoid rate limiting
                     try:
@@ -162,7 +309,7 @@ class HorizonScanner:
                         if not interest.empty and keyword in interest.columns:
                             latest_score = float(interest[keyword].iloc[-1])
 
-                            if latest_score > config.min_trend_score:
+                            if latest_score > min_trend_score:
                                 topics.append({
                                     "topic": keyword,
                                     "source": SourceType.GOOGLE_TRENDS,
@@ -174,6 +321,16 @@ class HorizonScanner:
                                         "timeframe": "7d"
                                     }
                                 })
+
+                                # Broadcast topic discovered
+                                if self.job_id:
+                                    await broadcast_topic_discovered(
+                                        topic=keyword,
+                                        source="google_trends",
+                                        trend_score=latest_score,
+                                        job_id=self.job_id
+                                    )
+
                     except Exception as e:
                         logger.warning(f"Error getting trends for keyword '{keyword}': {e}")
                         continue
@@ -183,12 +340,12 @@ class HorizonScanner:
 
         return topics
 
-    def _scan_reddit(self, config: NicheConfig) -> List[Dict]:
+    async def _scan_reddit(self, config: NicheConfig) -> List[Dict]:
         """
         Scan Reddit for trending topics.
 
         Args:
-            config: Niche configuration
+            config: Niche configuration from database
 
         Returns:
             List of discovered topics
@@ -196,18 +353,26 @@ class HorizonScanner:
         topics = []
 
         try:
-            subreddits = config.reddit.get("subreddits", [])
-            min_upvotes = config.reddit.get("min_upvotes", 50)
-            time_filter = config.reddit.get("time_filter", "week")
+            # Parse search queries as subreddits (backward compatibility)
+            # In the new system, search_queries can contain subreddit names
+            subreddits = config.search_queries if config.search_queries else []
 
-            for subreddit_name in subreddits:
+            # Default subreddits if none specified
+            if not subreddits:
+                subreddits = ['all']
+
+            # Get min upvotes from ConfigManager
+            min_upvotes = self.config_manager.get('robot1.reddit.min_upvotes', 50, 'robot1')
+            time_filter = self.config_manager.get('robot1.reddit.time_filter', 'week', 'robot1')
+
+            for subreddit_name in subreddits[:10]:  # Limit subreddits to avoid rate limiting
                 try:
                     subreddit = self.reddit_client.subreddit(subreddit_name)
 
                     # Get hot posts
                     for post in subreddit.hot(limit=25):
                         if post.score >= min_upvotes and not post.stickied:
-                            topics.append({
+                            topic_data = {
                                 "topic": post.title,
                                 "source": SourceType.REDDIT,
                                 "trend_score": min(100.0, (post.score / min_upvotes) * 50),
@@ -219,7 +384,18 @@ class HorizonScanner:
                                     "comments": post.num_comments,
                                     "post_type": "hot"
                                 }
-                            })
+                            }
+                            topics.append(topic_data)
+
+                            # Broadcast topic discovered
+                            if self.job_id:
+                                await broadcast_topic_discovered(
+                                    topic=post.title[:100],  # Truncate for event
+                                    source="reddit",
+                                    trend_score=topic_data["trend_score"],
+                                    subreddit=subreddit_name,
+                                    job_id=self.job_id
+                                )
 
                     # Get top posts
                     for post in subreddit.top(time_filter=time_filter, limit=25):
@@ -273,7 +449,7 @@ class HorizonScanner:
         else:
             return TrendStatus.STABLE
 
-    def _save_topics(self, topics: List[Dict], niche: str, max_topics: int) -> int:
+    async def _save_topics(self, topics: List[Dict], niche: str, max_topics: int) -> int:
         """
         Save discovered topics to database.
 

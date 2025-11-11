@@ -13,7 +13,9 @@ YouTube Topic Finder analyzes trending topics across multiple platforms, scrapes
 - **💯 Opportunity Scoring**: Multi-factor analysis (search volume, competition, velocity, sentiment)
 - **🎯 Format Prediction**: AI-powered video format classification from transcripts
 - **🎨 Content Gap Analysis**: Identifies underserved market opportunities
-- **⚙️ Highly Configurable**: YAML-based configuration with planned React dashboard for real-time adjustments
+- **⚙️ Fully Configurable**: Complete REST API for managing all settings, niches, and robot behavior from React dashboard
+- **📡 Real-time Monitoring**: Live job progress, robot status, and data updates via Server-Sent Events
+- **🧪 Test & Validate**: Test configurations before saving, validate API connections
 - **☁️ Cloud-Native**: Powered by Supabase for scalable PostgreSQL hosting and real-time features
 
 ## Architecture
@@ -106,44 +108,95 @@ ROBOT1_MAX_TOPICS_PER_RUN=20
 
 ## Configuration System
 
-### YAML-Based Niche Configuration
+The YouTube Topic Finder is designed to be **fully configurable** from a React dashboard through a comprehensive REST API. All settings, niches, and robot behavior can be managed without code changes.
 
-Edit niche configurations in `config/niches/`:
+### Configuration Approach
 
-```yaml
-# config/niches/ai_tech.yaml
-name: "AI & Technology"
-keywords:
-  - "artificial intelligence"
-  - "machine learning"
-  - "AI tools"
-sources:
-  google_trends:
-    enabled: true
-    weight: 0.6
-  reddit:
-    enabled: true
-    weight: 0.4
-    subreddits:
-      - "artificial"
-      - "MachineLearning"
-opportunity_thresholds:
-  minimum_score: 70
-  search_volume_min: 1000
-  competition_max: "medium"
+**Incremental Development:**
+- Configuration infrastructure is built alongside each robot
+- Robot 1 (Horizon Scanner) has full configuration support now
+- Robots 2-4 will get the same treatment as they're developed
+
+**Storage Strategy:**
+- **Primary**: Supabase database (dynamic, user-created configurations)
+- **Templates**: YAML files in `config/templates/niches/` (read-only examples)
+- **Sync**: One-way on startup (YAML → Database for templates)
+
+**Hot-reload Capabilities:**
+- ✅ **Hot-reloadable**: Niche settings, scoring thresholds, robot behavior parameters
+- ⚠️ **Requires restart**: Database URL, API keys, Redis URL
+- Each setting flagged individually for reload behavior
+
+### Configuration API Endpoints
+
+**Niche Management:**
+```bash
+GET    /api/niches/                  # List all niches
+POST   /api/niches/                  # Create new niche
+GET    /api/niches/{id}              # Get niche details
+PUT    /api/niches/{id}              # Update niche
+DELETE /api/niches/{id}              # Delete niche
+POST   /api/niches/{id}/test         # Test niche config
+POST   /api/niches/import            # Import from JSON/YAML
+GET    /api/niches/export/all        # Export all niches
 ```
 
-### React Dashboard (Coming Soon)
+**Settings Management:**
+```bash
+GET    /api/settings                 # Get all settings
+PUT    /api/settings                 # Bulk update settings
+PATCH  /api/settings/{key}           # Update single setting
+POST   /api/settings/reload          # Hot-reload changed settings
+```
 
-The planned React dashboard will provide:
+**Job Monitoring:**
+```bash
+GET    /api/jobs                     # List recent jobs
+GET    /api/jobs/{id}                # Get job details
+DELETE /api/jobs/{id}                # Cancel running job
+```
 
-- **Real-time Configuration**: Adjust all settings without restarting
-- **Live Monitoring**: Watch robots discover and analyze topics
-- **Visual Analytics**: Charts and graphs of opportunity scores
-- **Niche Management**: Create, edit, and test niches on the fly
-- **Pipeline Control**: Start, stop, and schedule robot runs
-- **Export Controls**: Download results in various formats
-- **Webhook Integration**: Connect to external services
+**Validation & Testing:**
+```bash
+POST   /api/validate/niche           # Validate niche config
+POST   /api/validate/reddit          # Test Reddit API connection
+POST   /api/validate/api-key         # Test API keys
+```
+
+**Real-time Events (Server-Sent Events):**
+```bash
+GET    /api/events/jobs/{id}         # Stream job progress
+GET    /api/events/discoveries       # Stream new seed topics
+GET    /api/events/robots            # Stream robot status
+```
+
+### React Dashboard Features
+
+The React dashboard (in development) will provide:
+
+- **✅ Full CRUD**: Create, read, update, delete niches and settings
+- **✅ Real-time Monitoring**: Live job progress, robot status, data updates
+- **✅ Test Before Save**: Validate configurations before applying
+- **✅ Import/Export**: Backup and share configs in JSON/YAML
+- **Visual Analytics**: Charts and graphs of opportunity scores (coming soon)
+- **Pipeline Control**: Schedule and orchestrate robot runs (coming soon)
+- **Webhook Integration**: Connect to external services (coming soon)
+
+### YAML Templates vs Database
+
+**YAML Templates** (`config/templates/niches/`):
+- Shipped with the application as examples
+- Read-only from the dashboard
+- Can be cloned to create custom niches
+- Loaded into database on first run
+
+**Database Configurations**:
+- User-created niches stored in Supabase
+- Fully editable from dashboard
+- Version tracked with history
+- Can be exported to YAML for sharing
+
+See `docs/CONFIGURATION.md` for detailed configuration guide.
 
 ## Usage
 
@@ -202,8 +255,9 @@ JSON prompts ready for AI video generators:
 
 ## Database Schema
 
-9-table schema in Supabase cloud:
+11-table schema in Supabase cloud:
 
+**Core Data Tables:**
 - `seed_topics` - Trending topics discovered by Robot 1 ✅
 - `videos` - Candidate videos from Robot 2
 - `video_metrics` - Raw performance metrics from Robot 3
@@ -211,8 +265,12 @@ JSON prompts ready for AI video generators:
 - `video_formats` - Format predictions from Robot 4
 - `search_queries` - Search tracking
 - `content_gaps` - Identified gaps
-- `niche_configs` - Loaded configurations ✅
-- `processing_jobs` - Job queue ✅
+
+**Configuration & Monitoring:**
+- `niche_configs` - User-created and template niches ✅
+- `app_settings` - All robot settings, API keys, processing limits
+- `job_status` - Real-time job tracking and progress
+- `config_history` - Version history of all configuration changes
 
 ## Development
 
@@ -221,16 +279,36 @@ JSON prompts ready for AI video generators:
 ```
 YouTube_Topic_Finder/
 ├── src/
-│   ├── api/              # FastAPI routes
-│   ├── robots/           # 4 robot implementations
-│   ├── models/           # Database models
-│   ├── services/         # Business logic
-│   ├── utils/            # Utilities
-│   └── config/           # Config management
-├── migrations/           # Database migrations (Alembic)
-├── config/              # YAML configs
-├── tests/               # Tests
-└── docs/                # Documentation
+│   ├── api/                      # FastAPI routes
+│   │   ├── niches.py            # Niche CRUD, test, export/import
+│   │   ├── settings.py          # Settings management
+│   │   ├── jobs.py              # Job monitoring
+│   │   ├── validation.py        # Config testing
+│   │   ├── events.py            # SSE for real-time updates
+│   │   ├── robots.py            # Robot triggers
+│   │   └── opportunities.py     # Results endpoints
+│   ├── robots/                   # 4 robot implementations
+│   │   └── horizon_scanner.py   # Robot 1 (working)
+│   ├── models/                   # SQLAlchemy models
+│   │   ├── niche_config.py      # Niche configurations
+│   │   ├── app_setting.py       # Application settings
+│   │   ├── job_status.py        # Job tracking
+│   │   └── ...                  # Other data models
+│   ├── services/                 # Business logic
+│   │   ├── config_service.py    # ConfigManager (hot-reload)
+│   │   ├── niche_service.py     # Niche CRUD operations
+│   │   ├── job_service.py       # Job management
+│   │   └── validation_service.py # Config validation
+│   ├── schemas/                  # Pydantic schemas
+│   ├── utils/                    # Utilities
+│   └── config/                   # Config management
+├── migrations/                   # Database migrations (Alembic)
+├── config/
+│   └── templates/                # YAML template configs
+│       └── niches/              # Niche templates
+├── tests/                        # Tests
+└── docs/                         # Documentation
+    └── CONFIGURATION.md         # Config system guide
 ```
 
 ### Running Tests

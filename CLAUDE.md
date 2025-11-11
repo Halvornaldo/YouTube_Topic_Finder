@@ -32,7 +32,54 @@ YouTube Topic Finder is an automated topic discovery tool using a 4-robot micros
    - Formats: Tutorial, Listicle, News, Review, etc.
    - Output: Format predictions stored in `video_formats` table
 
-## Database Schema (9 Tables in Supabase)
+## Configuration System ✅ COMPLETED
+
+### Incremental Development Strategy
+The system is designed to be **fully configurable from a React dashboard**. Configuration infrastructure is built **incrementally** alongside each robot:
+
+- **Robot 1 (Horizon Scanner)**: Full configuration support ✅ COMPLETE
+- **Robots 2-4**: Will receive same configuration treatment as they're developed
+- **Philosophy**: Build config APIs with each robot, not as separate phase
+- **Pattern Documented**: See `docs/ROBOT_DEVELOPMENT_PATTERN.md` for standardized approach
+
+### Storage Architecture
+
+**Database-First Approach:**
+- **Primary**: Supabase PostgreSQL (dynamic, user-created configs)
+- **Templates**: YAML files in `config/templates/niches/` (read-only examples)
+- **Sync**: One-way on startup (YAML templates → Database)
+- **Philosophy**: Users configure everything from dashboard; database is source of truth
+
+**Hot-reload System:**
+- ✅ **Hot-reloadable**: Niche settings, scoring thresholds, robot behavior (ROBOT1_MAX_TOPICS, delays, etc.)
+- ⚠️ **Requires restart**: DATABASE_URL, API keys (security-sensitive), REDIS_URL
+- Controlled per-setting via `app_settings.requires_restart` column
+
+### Configuration Capabilities
+
+**What's Configurable:**
+- ✅ Niche settings (keywords, subreddits, thresholds)
+- ✅ Robot behavior (max topics, delays, enabled/disabled flags)
+- ✅ API keys and credentials (encrypted)
+- ✅ Processing limits (quotas, timeouts, concurrency)
+
+**Apply Methods:**
+- Hybrid approach: Critical settings hot-reload instantly, sensitive ones require restart
+- ConfigManager service handles reload logic
+- Dashboard shows which changes need restart
+
+**Real-time Features:**
+- Server-Sent Events (SSE) for job progress
+- Live robot status updates
+- New discovery streaming
+- Job completion notifications
+
+**Testing & Validation:**
+- Test configs before saving
+- Validate Reddit/YouTube API connections
+- Dry-run mode for robots
+
+## Database Schema (11 Tables in Supabase)
 
 ### Core Tables
 1. **seed_topics** - Trending topics from Robot 1 ✅
@@ -44,8 +91,12 @@ YouTube Topic Finder is an automated topic discovery tool using a 4-robot micros
 ### Supporting Tables
 6. **search_queries** - Track searches and their metadata
 7. **content_gaps** - Identified market gaps
-8. **niche_configs** - YAML-based niche configurations ✅
-9. **processing_jobs** - Job queue tracking ✅
+
+### Configuration & Monitoring Tables
+8. **niche_configs** - User-created and template niches ✅
+9. **app_settings** - All robot settings, API keys, processing limits (hot-reload flags)
+10. **job_status** - Real-time job tracking, progress, current step
+11. **config_history** - Version history of all configuration changes
 
 ## Tech Stack
 
@@ -69,33 +120,64 @@ YouTube Topic Finder is an automated topic discovery tool using a 4-robot micros
 ```
 YouTube_Topic_Finder/
 ├── src/
-│   ├── api/              # FastAPI endpoints
-│   ├── robots/           # 4 robot implementations
-│   ├── models/           # SQLAlchemy models
-│   ├── services/         # Business logic
-│   ├── utils/            # Helpers and utilities
-│   └── config/           # Configuration management
-├── migrations/           # Database migrations (Alembic)
-├── config/              # YAML configuration files
-│   └── niches/          # Niche-specific configs
-├── docs/                # Additional documentation
-├── tests/               # Test suite
-└── scripts/             # Utility scripts
+│   ├── api/                      # FastAPI endpoints
+│   │   ├── niches.py            # Niche CRUD, test, export/import
+│   │   ├── settings.py          # Settings management (hot-reload)
+│   │   ├── jobs.py              # Job monitoring and control
+│   │   ├── validation.py        # Config testing and validation
+│   │   ├── events.py            # SSE for real-time updates
+│   │   ├── robots.py            # Robot triggers
+│   │   ├── opportunities.py     # Results endpoints
+│   │   └── health.py            # Health checks
+│   ├── robots/                   # 4 robot implementations
+│   │   └── horizon_scanner.py   # Robot 1 (working with ConfigManager)
+│   ├── models/                   # SQLAlchemy models
+│   │   ├── niche_config.py      # Niche configurations
+│   │   ├── app_setting.py       # Application settings
+│   │   ├── job_status.py        # Job tracking
+│   │   ├── config_history.py    # Config version history
+│   │   └── ...                  # Other data models
+│   ├── services/                 # Business logic layer
+│   │   ├── config_service.py    # ConfigManager with hot-reload
+│   │   ├── niche_service.py     # Niche CRUD operations
+│   │   ├── job_service.py       # Job management and tracking
+│   │   └── validation_service.py # Config validation and testing
+│   ├── schemas/                  # Pydantic validation schemas
+│   ├── utils/                    # Helpers and utilities
+│   └── config/                   # Configuration management
+├── migrations/                   # Database migrations (Alembic)
+├── config/
+│   └── templates/                # YAML template configs (read-only)
+│       └── niches/              # Niche templates
+├── docs/                         # Documentation
+│   └── CONFIGURATION.md         # Configuration system guide
+├── tests/                        # Test suite
+└── scripts/                      # Utility scripts
 ```
 
 ## Development Workflow
 
 ### Current Status
 1. ✅ Project structure + documentation
-2. ✅ Database schema (Supabase cloud)
+2. ✅ Database schema (Supabase cloud) - 11 tables
 3. ✅ FastAPI backend foundation
-4. ✅ Robot 1 (Horizon Scanner) - WORKING WITH SUPABASE
+4. ✅ Robot 1 (Horizon Scanner) - COMPLETE & TESTED
 5. ✅ Migrated from Docker PostgreSQL to Supabase
-6. 🔜 Robot 2 (SERP Scraper)
-7. 🔜 Robot 3 (Metric Analyzer)
-8. 🔜 Robot 4 (Format Classifier)
-9. 🔜 React Dashboard with real-time configuration
-10. 🔜 Integration + full pipeline testing
+6. ✅ **Comprehensive Configuration System** - COMPLETE
+   - ✅ Niche CRUD API (tested)
+   - ✅ Settings Management API (tested)
+   - ✅ Job Monitoring API (tested)
+   - ✅ SSE Event Streaming (tested)
+   - ✅ ConfigManager service with hot-reload
+   - ✅ Template seeding from YAML
+   - ✅ Validation and testing endpoints
+7. ✅ **All APIs Tested** - Full CRUD operations verified
+8. ✅ **Robot Development Pattern** - Documented for Robots 2-4
+9. 🔜 Robot 2 (SERP Scraper)
+10. 🔜 Robot 3 (Metric Analyzer)
+11. 🔜 Robot 4 (Format Classifier)
+12. 🔜 React Dashboard with real-time configuration
+13. 🔜 Integration + full pipeline testing
 
 ### Running the System
 
@@ -192,14 +274,23 @@ LOG_LEVEL=INFO
 
 **Completed:**
 - [x] Project structure
-- [x] Database schema (Supabase)
+- [x] Database schema (Supabase) - 11 tables with migrations
 - [x] FastAPI backend foundation
-- [x] Robot 1 (Horizon Scanner)
+- [x] Robot 1 (Horizon Scanner) - Fully integrated and tested
 - [x] Supabase migration
-- [x] Documentation update
+- [x] **Configuration System** - Complete with all APIs
+  - [x] Niche Management API (CRUD, import/export, validation)
+  - [x] Settings Management API (hot-reload support)
+  - [x] Job Monitoring API (real-time tracking)
+  - [x] SSE Event Streaming (live updates)
+  - [x] Validation & Testing API
+- [x] **Template System** - YAML templates seeded to database
+- [x] **Comprehensive Testing** - All APIs tested and verified
+- [x] **Development Pattern** - Documented for future robots
+- [x] Documentation updates
 
-**In Progress:**
-- [ ] Robot 2 (SERP Scraper)
+**Ready to Start:**
+- [ ] Robot 2 (SERP Scraper) - Pattern defined, ready to implement
 
 **Pending:**
 - [ ] Robot 3 (Metric Analyzer)
@@ -209,12 +300,27 @@ LOG_LEVEL=INFO
 
 ## Next Steps
 
-Now that Robot 1 is working with Supabase:
-1. Implement Robot 2 with Playwright scraping
-2. Add YouTube API fallback mechanism
-3. Implement rate limiting and retry logic
-4. Continue to Robot 3 and 4
-5. Build React dashboard with Supabase real-time features
+Now that Robot 1 and Configuration System are complete:
+1. **Robot 2 (SERP Scraper)** - Follow pattern in `docs/ROBOT_DEVELOPMENT_PATTERN.md`
+   - Implement Playwright scraping
+   - Add YouTube API fallback mechanism
+   - Integrate with ConfigManager and JobService
+   - Test thoroughly before proceeding
+2. **Robot 3 (Metric Analyzer)** - Use same pattern
+3. **Robot 4 (Format Classifier)** - Use same pattern
+4. **React Dashboard** - Build with Supabase real-time features
+5. **Full Pipeline Integration** - End-to-end testing
+
+## Testing Summary
+
+All systems tested and verified (2025-11-11):
+- ✅ Template seeding (5 YAML templates loaded)
+- ✅ Niche CRUD operations (CREATE, READ, UPDATE, DELETE)
+- ✅ Settings management (CREATE, READ, DELETE)
+- ✅ Job monitoring endpoints
+- ✅ SSE event streaming (connection established)
+- ✅ Trailing slash handling fixed for all endpoints
+- ✅ Robot 1 integration with configuration system
 
 ## Important Changes from Original Design
 

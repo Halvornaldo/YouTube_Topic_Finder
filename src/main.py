@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.config.settings import settings
-from src.api import health, robots, opportunities, niches
+from src.api import health, robots, opportunities, niches, settings as settings_api, jobs, events, validation
 import logging
 
 # Configure logging
@@ -14,7 +14,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+
+# Create FastAPI app (with redirect_slashes disabled at router level)
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
@@ -22,6 +23,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Configure app router to not redirect trailing slashes
+app.router.redirect_slashes = False
 
 # CORS middleware
 app.add_middleware(
@@ -37,6 +41,10 @@ app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(robots.router, prefix="/api/robots", tags=["Robots"])
 app.include_router(opportunities.router, prefix="/api/opportunities", tags=["Opportunities"])
 app.include_router(niches.router, prefix="/api/niches", tags=["Niches"])
+app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
+app.include_router(events.router, prefix="/api/events", tags=["Events"])
+app.include_router(validation.router, prefix="/api/validation", tags=["Validation"])
 
 
 @app.on_event("startup")

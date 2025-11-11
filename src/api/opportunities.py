@@ -42,7 +42,7 @@ class TopicAnalysisResponse(BaseModel):
     keywords: List[str]
 
 
-@router.get("/", response_model=List[OpportunityResponse])
+@router.get("", response_model=List[OpportunityResponse])
 async def get_opportunities(
     limit: int = Query(default=10, le=100),
     min_score: float = Query(default=60.0, ge=0, le=100),

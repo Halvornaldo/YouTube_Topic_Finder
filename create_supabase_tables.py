@@ -21,6 +21,9 @@ from src.models.search_query import SearchQuery
 from src.models.content_gap import ContentGap
 from src.models.niche_config import NicheConfig
 from src.models.processing_job import ProcessingJob
+from src.models.app_setting import AppSetting
+from src.models.job_status import JobStatus
+from src.models.config_history import ConfigHistory
 
 from sqlalchemy import create_engine
 from sqlalchemy.exc import ProgrammingError
