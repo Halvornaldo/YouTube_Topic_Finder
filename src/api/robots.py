@@ -1,9 +1,10 @@
 """API endpoints for robot operations."""
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from src.config.database import get_db
 import logging
 import asyncio
@@ -30,9 +31,17 @@ class HorizonScanResponse(BaseModel):
 
 class SerpScrapeRequest(BaseModel):
     """Request to run Robot 2 (SERP Scraper)."""
-    topic_ids: Optional[List[int]] = None
-    seed_topic_id: Optional[int] = None
-    max_videos: Optional[int] = 50
+    niche_name: str = Field(..., description="Name of the niche to process", min_length=1)
+    max_topics: Optional[int] = Field(None, description="Maximum topics to process", gt=0, le=100)
+
+
+class SerpScrapeResponse(BaseModel):
+    """Response from Robot 2."""
+    job_id: int
+    status: str
+    message: str
+    niche_name: str
+    topics_found: Optional[int] = None
 
 
 class MetricAnalysisRequest(BaseModel):
@@ -150,7 +159,31 @@ async def run_horizon_scanner(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/serp-scraper/run")
+async def _run_serp_scraper_async(db: Session, niche_name: str, max_topics: Optional[int] = None):
+    """
+    Helper function to run SERP Scraper asynchronously.
+
+    Args:
+        db: Database session
+        niche_name: Niche name
+        max_topics: Max topics to process
+    """
+    try:
+        from src.robots.serp_scraper import SerpScraper
+
+        scraper = SerpScraper(db)
+        result = await scraper.run(niche_name, max_topics)
+
+        logger.info(f"SERP Scraper completed: {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in background SERP scraper task: {e}", exc_info=True)
+        # Error is already handled in scraper.run() and broadcast to SSE
+        raise
+
+
+@router.post("/serp-scraper/run", response_model=SerpScrapeResponse)
 async def run_serp_scraper(
     request: SerpScrapeRequest,
     background_tasks: BackgroundTasks,
@@ -159,12 +192,160 @@ async def run_serp_scraper(
     """
     Run Robot 2: SERP Scraper.
 
-    Scrapes YouTube search results for candidate videos.
+    Scrapes YouTube search results for candidate videos based on unprocessed seed topics.
 
-    Status: Not yet implemented
+    The scraper will:
+    - Load unprocessed seed topics for the specified niche
+    - Search YouTube for each topic (Playwright + API fallback)
+    - Extract video metadata
+    - Save videos to database
+    - Mark seed topics as processed
+    - Broadcast real-time progress via SSE
+
+    Returns immediately with job ID. Monitor progress via:
+    - GET /api/jobs/{job_id}
+    - SSE /api/events/stream?event_types=job_progress
+
+    Args:
+        request: Scrape request with niche_name and optional max_topics
+        background_tasks: FastAPI background tasks
+        db: Database session
+
+    Returns:
+        Response with job_id for monitoring
     """
-    # TODO: Implement Robot 2
-    raise HTTPException(status_code=501, detail="Robot 2 not yet implemented")
+    try:
+        from src.models.seed_topic import SeedTopic
+        from sqlalchemy import select
+
+        # Check if there are unprocessed topics for this niche
+        unprocessed_count = db.execute(
+            select(func.count()).select_from(SeedTopic).where(
+                SeedTopic.niche == request.niche_name,
+                SeedTopic.processed == 0
+            )
+        ).scalar()
+
+        if unprocessed_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No unprocessed seed topics found for niche '{request.niche_name}'"
+            )
+
+        # Start scraper in background
+        background_tasks.add_task(
+            _run_serp_scraper_async,
+            db,
+            request.niche_name,
+            request.max_topics
+        )
+
+        return SerpScrapeResponse(
+            job_id=0,  # Will be set by scraper.run()
+            status="queued",
+            message=f"SERP scraper queued for niche: {request.niche_name}",
+            niche_name=request.niche_name,
+            topics_found=unprocessed_count
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error queueing SERP scraper: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/serp-scraper/stats")
+async def get_serp_scraper_stats(
+    niche: Optional[str] = Query(None, description="Filter by niche"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get Robot 2 (SERP Scraper) statistics.
+
+    Returns statistics about videos discovered, search queries performed,
+    and processing queue status.
+
+    Args:
+        niche: Optional niche filter
+        db: Database session
+
+    Returns:
+        Statistics dict
+    """
+    try:
+        from src.services.serp_scraper_service import SerpScraperService
+
+        service = SerpScraperService(db)
+
+        return {
+            'video_stats': service.get_video_stats(niche),
+            'search_stats': service.get_search_stats(niche),
+            'queue_status': service.get_processing_queue_status()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting SERP scraper stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/serp-scraper/results")
+async def get_serp_scraper_results(
+    niche: Optional[str] = Query(None, description="Filter by niche"),
+    limit: int = Query(20, ge=1, le=100, description="Number of videos to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    order_by: str = Query("created_at", description="Sort field: created_at, view_count, published_at"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get videos discovered by Robot 2 (SERP Scraper).
+
+    Args:
+        niche: Optional niche filter
+        limit: Number of results (1-100)
+        offset: Pagination offset
+        order_by: Sort field
+        db: Database session
+
+    Returns:
+        List of videos with metadata
+    """
+    try:
+        from src.services.serp_scraper_service import SerpScraperService
+
+        service = SerpScraperService(db)
+        videos = service.get_videos(niche=niche, limit=limit, offset=offset, order_by=order_by)
+
+        return {
+            'total': len(videos),
+            'limit': limit,
+            'offset': offset,
+            'niche': niche,
+            'order_by': order_by,
+            'videos': [
+                {
+                    'id': v.id,
+                    'video_id': v.video_id,
+                    'title': v.title,
+                    'channel_name': v.channel_name,
+                    'view_count': v.view_count,
+                    'like_count': v.like_count,
+                    'comment_count': v.comment_count,
+                    'published_at': v.published_at.isoformat() if v.published_at else None,
+                    'duration_seconds': v.duration_seconds,
+                    'thumbnail_url': v.thumbnail_url,
+                    'youtube_url': f"https://www.youtube.com/watch?v={v.video_id}",
+                    'metrics_analyzed': v.metrics_analyzed,
+                    'format_classified': v.format_classified,
+                    'created_at': v.created_at.isoformat()
+                }
+                for v in videos
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting SERP scraper results: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/metric-analyzer/run")
