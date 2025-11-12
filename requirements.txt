@@ -18,12 +18,12 @@ hiredis>=3.0.0
 pytrends>=4.9.2
 praw>=7.8.0
 
-# Robot 2: SERP Scraper (future - not needed for Phase 1)
+# Robot 2: SERP Scraper
 # playwright==1.41.0  # Uncomment when implementing Robot 2
-# google-api-python-client==2.116.0  # Uncomment when implementing Robot 2
+google-api-python-client>=2.116.0  # YouTube Data API v3
 
-# Robot 3: Metric Analyzer (future - not needed for Phase 1)
-# google-ads>=28.0.0  # Uncomment when implementing Robot 3
+# Robot 3: Metric Analyzer
+google-ads>=28.0.0  # Google Ads API for search volume
 
 # Robot 4: Format Classifier (future - not needed for Phase 1)
 # pytube==15.0.0  # Uncomment when implementing Robot 4

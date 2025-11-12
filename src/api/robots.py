@@ -46,8 +46,20 @@ class SerpScrapeResponse(BaseModel):
 
 class MetricAnalysisRequest(BaseModel):
     """Request to run Robot 3 (Metric Analyzer)."""
-    video_ids: Optional[List[int]] = None
-    search_query_id: Optional[int] = None
+    video_ids: Optional[List[int]] = Field(None, description="Specific video IDs to analyze")
+    search_query_id: Optional[int] = Field(None, description="Filter by search query ID")
+    seed_topic_id: Optional[int] = Field(None, description="Filter by seed topic ID")
+    niche: Optional[str] = Field(None, description="Filter by niche name")
+    batch_size: Optional[int] = Field(None, description="Maximum videos to process", gt=0, le=1000)
+    reanalyze: bool = Field(False, description="Re-analyze already processed videos")
+
+
+class MetricAnalysisResponse(BaseModel):
+    """Response from Robot 3."""
+    job_id: int
+    status: str
+    message: str
+    videos_found: int
 
 
 class FormatClassificationRequest(BaseModel):
@@ -348,7 +360,50 @@ async def get_serp_scraper_results(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/metric-analyzer/run")
+async def _run_metric_analyzer_async(
+    db: Session,
+    video_ids: Optional[List[int]] = None,
+    search_query_id: Optional[int] = None,
+    seed_topic_id: Optional[int] = None,
+    niche: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    reanalyze: bool = False
+):
+    """
+    Helper function to run Metric Analyzer asynchronously.
+
+    Args:
+        db: Database session
+        video_ids: Specific video IDs to analyze
+        search_query_id: Filter by search query ID
+        seed_topic_id: Filter by seed topic ID
+        niche: Filter by niche name
+        batch_size: Max videos to process
+        reanalyze: Re-analyze already processed videos
+    """
+    try:
+        from src.robots.metric_analyzer import MetricAnalyzer
+
+        analyzer = MetricAnalyzer(db)
+        result = await analyzer.run(
+            video_ids=video_ids,
+            search_query_id=search_query_id,
+            seed_topic_id=seed_topic_id,
+            niche=niche,
+            batch_size=batch_size,
+            reanalyze=reanalyze
+        )
+
+        logger.info(f"Metric Analyzer completed: {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in background metric analyzer task: {e}", exc_info=True)
+        # Error is already handled in analyzer.run() and broadcast to SSE
+        raise
+
+
+@router.post("/metric-analyzer/run", response_model=MetricAnalysisResponse)
 async def run_metric_analyzer(
     request: MetricAnalysisRequest,
     background_tasks: BackgroundTasks,
@@ -357,12 +412,127 @@ async def run_metric_analyzer(
     """
     Run Robot 3: Metric Analyzer.
 
-    Calculates opportunity scores for videos.
+    Analyzes video metrics and calculates opportunity scores.
 
-    Status: Not yet implemented
+    The analyzer will:
+    - Fetch videos based on filters (video_ids, search_query_id, seed_topic_id, niche, or all unanalyzed)
+    - Fetch metrics from YouTube Data API v3
+    - Fetch search volume from Google Ads API (if configured)
+    - Calculate engagement and velocity metrics
+    - Calculate 6 component scores (search volume, competition, velocity, engagement, sentiment, recency)
+    - Calculate overall opportunity score (weighted average)
+    - Determine competition level and identify content gaps
+    - Predict trend direction
+    - Save results to video_metrics and opportunity_scores tables
+    - Broadcast real-time progress via SSE
+
+    Returns immediately with job ID. Monitor progress via:
+    - GET /api/jobs/{job_id}
+    - SSE /api/events/stream?event_types=job_progress
+
+    Args:
+        request: Analysis request with optional filters
+        background_tasks: FastAPI background tasks
+        db: Database session
+
+    Returns:
+        Response with job_id for monitoring
+
+    Example requests:
+        1. Analyze all unanalyzed videos:
+           POST {} (empty body)
+
+        2. Analyze specific niche:
+           POST {"niche": "ai_tech", "batch_size": 10}
+
+        3. Analyze specific videos:
+           POST {"video_ids": [1, 2, 3]}
+
+        4. Re-analyze already processed videos:
+           POST {"niche": "ai_tech", "reanalyze": true}
     """
-    # TODO: Implement Robot 3
-    raise HTTPException(status_code=501, detail="Robot 3 not yet implemented")
+    try:
+        from src.models.video import Video
+
+        # Validate filters
+        filter_count = sum([
+            request.video_ids is not None,
+            request.search_query_id is not None,
+            request.seed_topic_id is not None,
+            request.niche is not None
+        ])
+
+        # Build filter description for message
+        if request.video_ids:
+            filter_desc = f"{len(request.video_ids)} specific videos"
+        elif request.search_query_id:
+            filter_desc = f"search query #{request.search_query_id}"
+        elif request.seed_topic_id:
+            filter_desc = f"seed topic #{request.seed_topic_id}"
+        elif request.niche:
+            filter_desc = f"niche '{request.niche}'"
+        else:
+            filter_desc = "all unanalyzed videos"
+
+        # Count videos to be analyzed (quick estimate)
+        from sqlalchemy import select, and_
+        query = select(func.count(Video.id))
+
+        if request.video_ids:
+            query = query.where(Video.id.in_(request.video_ids))
+        elif request.search_query_id:
+            query = query.where(Video.search_query_id == request.search_query_id)
+        elif request.seed_topic_id:
+            from src.models.search_query import SearchQuery
+            query = query.join(SearchQuery).where(SearchQuery.seed_topic_id == request.seed_topic_id)
+        elif request.niche:
+            from src.models.search_query import SearchQuery
+            from src.models.seed_topic import SeedTopic
+            query = query.join(SearchQuery).join(SeedTopic).where(SeedTopic.niche == request.niche)
+
+        # Apply reanalyze filter
+        if not request.reanalyze:
+            query = query.where(Video.metrics_analyzed == False)
+
+        videos_count = db.execute(query).scalar()
+
+        if videos_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No videos found matching criteria: {filter_desc}"
+            )
+
+        # Apply batch size limit
+        batch_size = request.batch_size or 50  # Default batch size
+        videos_to_process = min(videos_count, batch_size)
+
+        # Queue background task
+        background_tasks.add_task(
+            _run_metric_analyzer_async,
+            db=db,
+            video_ids=request.video_ids,
+            search_query_id=request.search_query_id,
+            seed_topic_id=request.seed_topic_id,
+            niche=request.niche,
+            batch_size=request.batch_size,
+            reanalyze=request.reanalyze
+        )
+
+        message = f"Analyzing {videos_to_process} videos from {filter_desc}"
+        logger.info(f"Queued Metric Analyzer: {message}")
+
+        return MetricAnalysisResponse(
+            job_id=0,  # Will be created by background task
+            status="queued",
+            message=message,
+            videos_found=videos_to_process
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error queueing metric analyzer: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/format-classifier/run")
