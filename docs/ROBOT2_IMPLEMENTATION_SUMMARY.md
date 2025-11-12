@@ -251,12 +251,87 @@ After initial implementation, the following fixes were applied to match Robot 1 
 - Safe to run multiple times (skips existing settings)
 - Executed successfully: 9 settings created in database
 
+## Additional Enhancements (2025-11-12)
+
+After initial implementation, the following enhancements were added:
+
+### 1. ✅ Tags and Category Capture
+**Issue:** YouTube API provides additional metadata (tags, categoryId) that wasn't being captured
+
+**Enhancement Applied:**
+- Added `category_id` column (String 10) to videos table
+- Added `tags` column (Text) to videos table
+- Created migration: `20251112_0903_0535c32de0a7_add_tags_and_category_to_videos.py`
+- Updated `_parse_api_video()` to extract tags and categoryId from snippet
+- Tags are stored as comma-separated string (converted from YouTube's array format)
+
+**Files Modified:**
+- `src/models/video.py` - Added columns to Video model (lines 29-30)
+- `src/robots/serp_scraper.py` - Added extraction logic (lines 586-600)
+- Migration created in `migrations/versions/`
+
+**Note:** Tags and categoryId are only populated when YouTube provides them (tags are optional metadata)
+
+### 2. ✅ Video Duration Filter
+**Issue:** No ability to filter out YouTube Shorts or set minimum video duration
+
+**Enhancement Applied:**
+- Added `robot2.video_duration` configuration setting (default: "medium")
+- Modified YouTube API search to include `videoDuration` parameter
+- Filter automatically excludes YouTube Shorts by default
+
+**Filter Options:**
+- `any` - No filter, returns all videos regardless of duration
+- `short` - Videos under 4 minutes (includes YouTube Shorts)
+- `medium` - Videos 4-20 minutes (excludes Shorts) **← DEFAULT**
+- `long` - Videos over 20 minutes
+
+**Files Modified:**
+- `src/robots/serp_scraper.py` - Added duration filter logic (lines 511-525)
+- Database setting added to `app_settings` table
+
+**API Configuration:**
+- GET `/api/settings/robot2.video_duration` - Retrieve current filter
+- PUT `/api/settings/robot2.video_duration` - Update filter (no restart required)
+- Fully configurable from React frontend when implemented
+
+**Benefits:**
+- Excludes low-quality short-form content by default
+- Focuses on longer-form content with more opportunity for analysis
+- User-configurable without code changes
+- Changes take effect immediately on next Robot 2 run
+
+### 3. ✅ YouTube API Key Configuration
+**Completed:** YouTube Data API v3 key configured and tested
+- API key added to database: `youtube.api_key`
+- Successfully tested with 29 videos scraped
+- Robot 2 fully operational with API-only mode
+
+## Updated Settings List
+
+Robot 2 now has 9 configuration settings (plus 1 API key):
+
+**Robot 2 Settings (robot2 category):**
+1. `robot2.use_playwright` (boolean, default: false)
+2. `robot2.headless` (boolean, default: true)
+3. `robot2.youtube_api_fallback` (boolean, default: true)
+4. `robot2.delay_between_searches` (integer, default: 3)
+5. `robot2.max_topics_per_run` (integer, default: 10)
+6. `robot2.max_videos_per_query` (integer, default: 20)
+7. `robot2.screenshot_on_error` (boolean, default: false)
+8. `robot2.user_agent` (string, default: Chrome 120 UA)
+9. `robot2.video_duration` (string, default: "medium") **← NEW**
+
+**API Keys (api_keys category):**
+- `youtube.api_key` (string, configured) **← CONFIGURED**
+
 ## Next Steps
 
 1. **Configuration Setup:** ✅ COMPLETED
    - ✅ Robot 2 settings added to database via init script
-   - ⏸️ YouTube API key needs user configuration
-   - ⏸️ Adjust scraping limits as needed
+   - ✅ YouTube API key configured and tested (29 videos scraped)
+   - ✅ Video duration filter added to exclude YouTube Shorts
+   - ✅ Tags and category capture enabled
 
 2. **Testing:**
    - Run horizon scanner first to generate seed topics

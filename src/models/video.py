@@ -26,6 +26,8 @@ class Video(Base, TimestampMixin):
     thumbnail_url = Column(Text, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     published_at = Column(DateTime, nullable=True)
+    category_id = Column(String(10), nullable=True)  # YouTube category ID
+    tags = Column(Text, nullable=True)  # Comma-separated tags from YouTube
 
     # Basic metrics (from initial scrape)
     view_count = Column(Integer, nullable=True)

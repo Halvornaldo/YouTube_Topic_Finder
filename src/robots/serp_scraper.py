@@ -508,14 +508,23 @@ class SerpScraper:
         videos = []
 
         try:
+            # Get video duration filter from config
+            video_duration = self.config_manager.get('robot2.video_duration', 'any', 'robot2')
+
             # Search for videos
-            search_response = self.youtube_api_client.search().list(
-                q=query,
-                part='id,snippet',
-                maxResults=max_results,
-                type='video',
-                order='relevance'
-            ).execute()
+            search_params = {
+                'q': query,
+                'part': 'id,snippet',
+                'maxResults': max_results,
+                'type': 'video',
+                'order': 'relevance'
+            }
+
+            # Add duration filter if not 'any'
+            if video_duration and video_duration != 'any':
+                search_params['videoDuration'] = video_duration
+
+            search_response = self.youtube_api_client.search().list(**search_params).execute()
 
             # Extract video IDs
             video_ids = [item['id']['videoId'] for item in search_response.get('items', [])]
@@ -574,6 +583,10 @@ class SerpScraper:
                 except:
                     pass
 
+            # Extract tags (list) and join to comma-separated string
+            tags_list = snippet.get('tags', [])
+            tags_str = ', '.join(tags_list) if tags_list else None
+
             return {
                 'video_id': item['id'],
                 'channel_id': snippet.get('channelId'),
@@ -583,6 +596,8 @@ class SerpScraper:
                 'thumbnail_url': snippet.get('thumbnails', {}).get('high', {}).get('url'),
                 'duration_seconds': duration_seconds,
                 'published_at': published_at,
+                'category_id': snippet.get('categoryId'),
+                'tags': tags_str,
                 'view_count': int(statistics.get('viewCount', 0)),
                 'like_count': int(statistics.get('likeCount', 0)),
                 'comment_count': int(statistics.get('commentCount', 0)),
