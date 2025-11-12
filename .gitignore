@@ -45,6 +45,9 @@ venv.bak/
 logs/
 *.log
 
+# Session logs and documentation with sensitive data
+docs/SESSION_STATUS_*.md
+
 # Database
 *.db
 *.sqlite
