@@ -1,6 +1,6 @@
 """Opportunity score model - calculated opportunity scores from Robot 3."""
 
-from sqlalchemy import Column, Integer, Float, ForeignKey, Text, Enum
+from sqlalchemy import Column, Integer, Float, ForeignKey, Text, Enum, JSON
 from sqlalchemy.orm import relationship
 import enum
 from src.models.base import Base, TimestampMixin
@@ -48,7 +48,7 @@ class OpportunityScore(Base, TimestampMixin):
     recommended_angle = Column(Text, nullable=True)  # Suggested approach
 
     # Scoring weights used
-    weights = Column(Float, nullable=True)  # JSON of weights if custom
+    weights = Column(JSON, nullable=True)  # JSON of weights if custom
 
     # Trend prediction
     trend_prediction = Column(Text, nullable=True)  # "rising", "stable", "declining"

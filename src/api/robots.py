@@ -159,9 +159,9 @@ async def run_horizon_scanner(
         return HorizonScanResponse(
             job_id=0,  # Will be set by scanner.run()
             status="queued",
-            message=f"Horizon scanner queued for niche: {niche_config.name}",
+            message=f"Horizon scanner queued for niche: {niche_config.niche_name}",
             niche_id=request.niche_id,
-            niche_name=niche_config.name
+            niche_name=niche_config.niche_name
         )
 
     except HTTPException:
@@ -361,7 +361,6 @@ async def get_serp_scraper_results(
 
 
 async def _run_metric_analyzer_async(
-    db: Session,
     video_ids: Optional[List[int]] = None,
     search_query_id: Optional[int] = None,
     seed_topic_id: Optional[int] = None,
@@ -372,8 +371,9 @@ async def _run_metric_analyzer_async(
     """
     Helper function to run Metric Analyzer asynchronously.
 
+    Creates a fresh database session for background execution.
+
     Args:
-        db: Database session
         video_ids: Specific video IDs to analyze
         search_query_id: Filter by search query ID
         seed_topic_id: Filter by seed topic ID
@@ -381,10 +381,19 @@ async def _run_metric_analyzer_async(
         batch_size: Max videos to process
         reanalyze: Re-analyze already processed videos
     """
+    logger.info(f"[ROBOT3 BG] Starting background task - video_ids={video_ids}, niche={niche}, batch_size={batch_size}")
+
+    # Create a fresh database session for background task
+    from src.config.database import get_db
+    db = next(get_db())
+
     try:
         from src.robots.metric_analyzer import MetricAnalyzer
 
+        logger.info("[ROBOT3 BG] Initializing MetricAnalyzer")
         analyzer = MetricAnalyzer(db)
+
+        logger.info("[ROBOT3 BG] Calling analyzer.run()")
         result = await analyzer.run(
             video_ids=video_ids,
             search_query_id=search_query_id,
@@ -394,13 +403,16 @@ async def _run_metric_analyzer_async(
             reanalyze=reanalyze
         )
 
-        logger.info(f"Metric Analyzer completed: {result}")
+        logger.info(f"[ROBOT3 BG] Metric Analyzer completed: {result}")
         return result
 
     except Exception as e:
-        logger.error(f"Error in background metric analyzer task: {e}", exc_info=True)
+        logger.error(f"[ROBOT3 BG] Error in background metric analyzer task: {e}", exc_info=True)
         # Error is already handled in analyzer.run() and broadcast to SSE
         raise
+    finally:
+        logger.info("[ROBOT3 BG] Closing database session")
+        db.close()
 
 
 @router.post("/metric-analyzer/run", response_model=MetricAnalysisResponse)
@@ -506,10 +518,9 @@ async def run_metric_analyzer(
         batch_size = request.batch_size or 50  # Default batch size
         videos_to_process = min(videos_count, batch_size)
 
-        # Queue background task
+        # Queue background task (no db session - it creates its own)
         background_tasks.add_task(
             _run_metric_analyzer_async,
-            db=db,
             video_ids=request.video_ids,
             search_query_id=request.search_query_id,
             seed_topic_id=request.seed_topic_id,

@@ -133,8 +133,16 @@ class MetricAnalyzer:
         self.job_id = job.id
 
         # Broadcast job started
-        await broadcast_job_started(self.job_id, 'robot3', f"Analyzing {len(videos)} videos")
-        await broadcast_robot_status('robot3', 'running', f"Processing {len(videos)} videos")
+        await broadcast_job_started(
+            job_id=self.job_id,
+            job_type='robot3',
+            message=f"Analyzing {len(videos)} videos"
+        )
+        await broadcast_robot_status(
+            robot='robot3',
+            status='running',
+            message=f"Processing {len(videos)} videos"
+        )
 
         try:
             # Initialize API clients
@@ -153,13 +161,18 @@ class MetricAnalyzer:
 
             # Broadcast completion
             await broadcast_job_completed(
-                self.job_id,
-                'robot3',
-                f"Analyzed {result['videos_analyzed']} videos, "
-                f"{result['videos_successful']} successful, "
-                f"{result['videos_failed']} failed"
+                job_id=self.job_id,
+                result_summary=result,
+                job_type='robot3',
+                message=f"Analyzed {result['videos_analyzed']} videos, "
+                        f"{result['videos_successful']} successful, "
+                        f"{result['videos_failed']} failed"
             )
-            await broadcast_robot_status('robot3', 'idle', 'Analysis completed')
+            await broadcast_robot_status(
+                robot='robot3',
+                status='idle',
+                message='Analysis completed'
+            )
 
             logger.info(f"Metric Analyzer completed: {result}")
             return result
@@ -174,8 +187,16 @@ class MetricAnalyzer:
             self.db.commit()
 
             # Broadcast failure
-            await broadcast_job_failed(self.job_id, 'robot3', str(e))
-            await broadcast_robot_status('robot3', 'error', f"Analysis failed: {e}")
+            await broadcast_job_failed(
+                job_id=self.job_id,
+                error=str(e),
+                job_type='robot3'
+            )
+            await broadcast_robot_status(
+                robot='robot3',
+                status='error',
+                message=f"Analysis failed: {e}"
+            )
 
             return {
                 "status": "failed",
@@ -558,4 +579,9 @@ class MetricAnalyzer:
                 job.current_step = step
                 self.db.commit()
 
-            await broadcast_job_progress(self.job_id, 'robot3', percentage, step)
+            await broadcast_job_progress(
+                job_id=self.job_id,
+                progress=percentage,
+                step=step,
+                job_type='robot3'
+            )

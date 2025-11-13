@@ -2,6 +2,7 @@
 
 import logging
 import asyncio
+import os
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from src.models.seed_topic import SeedTopic, SourceType, TrendStatus
 from src.models.niche_config import NicheConfig
 from src.models.job_status import JobStatus
 from src.services.config_manager import ConfigManager
+from src.config.settings import settings
 from src.services.event_manager import (
     broadcast_job_started,
     broadcast_job_progress,
@@ -55,6 +57,38 @@ class HorizonScanner:
         self.reddit_client: Optional[praw.Reddit] = None
         self.job_id: Optional[int] = None
 
+    def _get_credential(self, db_key: str, env_value: Optional[str], name: str) -> Optional[str]:
+        """
+        Get credential with proper fallback logic.
+
+        Priority:
+        1. Database (if set and non-empty)
+        2. Environment variable (from .env via settings)
+
+        Args:
+            db_key: Database key (e.g., 'reddit.client_id')
+            env_value: Value from settings/environment
+            name: Human-readable name for logging
+
+        Returns:
+            Credential value or None
+        """
+        # Try database first
+        db_value = self.config_manager.get(db_key, None, 'api_keys')
+
+        # Use database value if it exists and is non-empty
+        if db_value and isinstance(db_value, str) and db_value.strip():
+            logger.info(f"{name} loaded from database")
+            return db_value.strip()
+
+        # Fall back to environment
+        if env_value and isinstance(env_value, str) and env_value.strip():
+            logger.info(f"{name} loaded from environment (.env)")
+            return env_value.strip()
+
+        # Not found in either location
+        return None
+
     def _init_google_trends(self):
         """Initialize Google Trends client."""
         enabled = self.config_manager.get('robot1.google_trends.enabled', True, 'robot1')
@@ -78,10 +112,10 @@ class HorizonScanner:
             logger.warning("Reddit disabled in settings")
             return
 
-        # Get credentials from ConfigManager
-        client_id = self.config_manager.get('reddit.client_id', None, 'api_keys')
-        client_secret = self.config_manager.get('reddit.client_secret', None, 'api_keys')
-        user_agent = self.config_manager.get('reddit.user_agent', 'YouTubeTopicFinder/1.0', 'api_keys')
+        # Get credentials using standardized helper with proper empty-string handling
+        client_id = self._get_credential('reddit.client_id', settings.REDDIT_CLIENT_ID, 'Reddit Client ID')
+        client_secret = self._get_credential('reddit.client_secret', settings.REDDIT_CLIENT_SECRET, 'Reddit Client Secret')
+        user_agent = self._get_credential('reddit.user_agent', settings.REDDIT_USER_AGENT, 'Reddit User Agent')
 
         if not client_id or not client_secret:
             logger.warning("Reddit credentials not configured")
@@ -93,7 +127,7 @@ class HorizonScanner:
                 client_secret=client_secret,
                 user_agent=user_agent,
             )
-            logger.info("Reddit client initialized")
+            logger.info("Reddit client initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize Reddit: {e}")
             self.reddit_client = None
@@ -131,7 +165,7 @@ class HorizonScanner:
             status='running',
             config_snapshot={
                 'niche_id': niche_id,
-                'niche_name': niche_config.name,
+                'niche_name': niche_config.niche_name,
                 'max_topics': max_topics,
                 'google_trends_enabled': niche_config.google_trends_weight > 0,
                 'reddit_enabled': niche_config.reddit_weight > 0
@@ -148,7 +182,7 @@ class HorizonScanner:
             await broadcast_job_started(
                 job_id=job.id,
                 job_type='robot1',
-                niche_name=niche_config.name,
+                niche_name=niche_config.niche_name,
                 niche_id=niche_id
             )
 
@@ -156,7 +190,7 @@ class HorizonScanner:
             await broadcast_robot_status(
                 robot='robot1',
                 status='running',
-                niche=niche_config.name
+                niche=niche_config.niche_name
             )
 
             # Update progress: Initializing
@@ -210,7 +244,7 @@ class HorizonScanner:
             self.db.commit()
             await broadcast_job_progress(job.id, 85, "Saving topics to database")
 
-            saved_count = await self._save_topics(topics_found, niche_config.name, max_topics)
+            saved_count = await self._save_topics(topics_found, niche_config.niche_name, max_topics)
 
             # Complete the job
             job.update_progress(100, "Completed")
@@ -240,7 +274,7 @@ class HorizonScanner:
             return {
                 "status": "completed",
                 "job_id": job.id,
-                "niche": niche_config.name,
+                "niche": niche_config.niche_name,
                 **result_summary
             }
 
@@ -353,9 +387,8 @@ class HorizonScanner:
         topics = []
 
         try:
-            # Parse search queries as subreddits (backward compatibility)
-            # In the new system, search_queries can contain subreddit names
-            subreddits = config.search_queries if config.search_queries else []
+            # Get subreddits from niche configuration
+            subreddits = config.reddit_subreddits if config.reddit_subreddits else []
 
             # Default subreddits if none specified
             if not subreddits:

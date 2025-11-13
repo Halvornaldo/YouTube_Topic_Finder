@@ -82,8 +82,13 @@ class ConfigManager:
             for setting in settings:
                 # Store typed value in cache
                 self._cache[setting.key] = setting.get_typed_value()
-                # Store full metadata for reference
-                self._metadata[setting.key] = setting
+                # Store metadata as dictionary (not ORM object to avoid session issues)
+                self._metadata[setting.key] = {
+                    'category': setting.category,
+                    'data_type': setting.data_type,
+                    'requires_restart': setting.requires_restart,
+                    'description': setting.description
+                }
 
             self._last_reload = datetime.utcnow()
             logger.debug("Loaded %d settings from database", len(settings))
@@ -108,7 +113,7 @@ class ConfigManager:
             # Optionally filter by category
             if category is not None:
                 metadata = self._metadata.get(key)
-                if metadata and metadata.category != category:
+                if metadata and metadata.get('category') != category:
                     return default
             return self._cache[key]
 
@@ -132,7 +137,7 @@ class ConfigManager:
         filtered = {}
         for key, value in self._cache.items():
             metadata = self._metadata.get(key)
-            if metadata and metadata.category == category:
+            if metadata and metadata.get('category') == category:
                 filtered[key] = value
 
         return filtered
@@ -370,7 +375,7 @@ class ConfigManager:
         """
         return [
             key for key, metadata in self._metadata.items()
-            if metadata.requires_restart
+            if metadata.get('requires_restart')
         ]
 
     def get_changed_settings(self, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
@@ -404,8 +409,7 @@ class ConfigManager:
                     'changed_at': change.created_at,
                     'old_value': change.previous_value,
                     'new_value': change.new_value,
-                    'requires_restart': self._metadata.get(change.config_key, {}).requires_restart
-                    if change.config_key in self._metadata else False
+                    'requires_restart': self._metadata.get(change.config_key, {}).get('requires_restart', False)
                 }
                 for change in changes
             ]

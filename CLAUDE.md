@@ -8,27 +8,29 @@ YouTube Topic Finder is an automated topic discovery tool using a 4-robot micros
 
 ### 4-Robot Microservice System
 
-1. **Robot 1 - Horizon Scanner** (`src/robots/horizon_scanner.py`) ✅ WORKING
+1. **Robot 1 - Horizon Scanner** (`src/robots/horizon_scanner.py`) ✅ COMPLETE & TESTED
    - Discovers trending "seed topics" from external sources
    - Data Sources: Google Trends (pytrends - currently 404), Reddit (praw - working)
+   - Credential Loading: Database → Environment fallback pattern (see Troubleshooting section)
    - Output: Seed topics stored in `seed_topics` table
-   - Status: Successfully connected to Supabase and saving data
+   - Status: Successfully saving data to Supabase, full pipeline tested
+   - Details: See `src/robots/horizon_scanner.py:60-90` for credential helper pattern
 
-2. **Robot 2 - SERP Scraper** (`src/robots/serp_scraper.py`) ✅ IMPLEMENTED
+2. **Robot 2 - SERP Scraper** (`src/robots/serp_scraper.py`) ✅ COMPLETE & TESTED
    - Scrapes YouTube search results for candidate videos
    - Hybrid approach: Playwright scraping + YouTube API fallback
    - Avoids rate limiting and blocks
    - Output: Video candidates stored in `videos` table
-   - Status: Core implementation complete, ready for testing
+   - Status: Full pipeline tested, successfully finding and storing videos
    - Details: See `docs/ROBOT2_IMPLEMENTATION_SUMMARY.md`
 
-3. **Robot 3 - Metric Analyzer** (`src/robots/metric_analyzer.py`) ✅ IMPLEMENTED
+3. **Robot 3 - Metric Analyzer** (`src/robots/metric_analyzer.py`) ✅ COMPLETE & TESTED
    - Calculates opportunity scores for videos
    - APIs: YouTube Data API v3 (working), Google Ads API (configured, awaiting developer token approval)
    - Metrics: Search volume, competition, view velocity, engagement, recency (sentiment deferred)
    - Scoring: 6 configurable components with weighted average (0-100 scale)
    - Output: Metrics stored in `video_metrics` and `opportunity_scores` tables
-   - Status: Core implementation complete, 24 settings configured
+   - Status: Full pipeline tested, analyzed 30 videos successfully with 0 failures
    - Details: See `docs/ROBOT3_IMPLEMENTATION_SUMMARY.md`
 
 4. **Robot 4 - Format Classifier** (`src/robots/format_classifier.py`) 🔜
@@ -180,8 +182,8 @@ YouTube_Topic_Finder/
    - ✅ Validation and testing endpoints
 7. ✅ **All APIs Tested** - Full CRUD operations verified
 8. ✅ **Robot Development Pattern** - Documented for Robots 2-4
-9. ✅ **Robot 2 (SERP Scraper)** - COMPLETE
-10. ✅ **Robot 3 (Metric Analyzer)** - COMPLETE
+9. ✅ **Robot 2 (SERP Scraper)** - COMPLETE & TESTED
+10. ✅ **Robot 3 (Metric Analyzer)** - COMPLETE & TESTED
    - ✅ Service layer with 30+ business logic methods
    - ✅ YouTube Data API integration
    - ✅ Google Ads API configured (awaiting developer token)
@@ -189,9 +191,13 @@ YouTube_Topic_Finder/
    - ✅ Hybrid video selection (IDs, search, topic, niche, all)
    - ✅ 24 configuration settings initialized
    - ✅ API endpoint with comprehensive documentation
-11. 🔜 Robot 4 (Format Classifier)
-12. 🔜 React Dashboard with real-time configuration
-13. 🔜 Integration + full pipeline testing (Robot 1 → 2 → 3)
+11. ✅ **Full Pipeline Integration (Robot 1→2→3)** - TESTED & WORKING (2025-11-13)
+   - ✅ End-to-end flow: Topics → Videos → Opportunity Scores
+   - ✅ ConfigManager session fix: Dictionary metadata storage prevents DetachedInstanceError
+   - ✅ Credential loading: Database → Environment fallback pattern
+   - ✅ Results: 30 videos analyzed with 0 failures, opportunity scores 35-61
+12. 🔜 Robot 4 (Format Classifier)
+13. 🔜 React Dashboard with real-time configuration
 
 ### Running the System
 
@@ -290,7 +296,18 @@ LOG_LEVEL=INFO
 - [x] Project structure
 - [x] Database schema (Supabase) - 11 tables with migrations
 - [x] FastAPI backend foundation
-- [x] Robot 1 (Horizon Scanner) - Fully integrated and tested
+- [x] **Robot 1 (Horizon Scanner)** - Fully integrated and tested
+  - [x] Credential loading pattern (database → environment fallback)
+  - [x] Reddit integration working
+  - [x] Saving topics to Supabase
+- [x] **Robot 2 (SERP Scraper)** - Fully integrated and tested
+  - [x] YouTube API integration
+  - [x] Video discovery and storage
+- [x] **Robot 3 (Metric Analyzer)** - Fully integrated and tested
+  - [x] YouTube Data API metrics collection
+  - [x] 6-component scoring algorithm
+  - [x] 24 configuration settings
+  - [x] Opportunity score calculation
 - [x] Supabase migration
 - [x] **Configuration System** - Complete with all APIs
   - [x] Niche Management API (CRUD, import/export, validation)
@@ -298,48 +315,173 @@ LOG_LEVEL=INFO
   - [x] Job Monitoring API (real-time tracking)
   - [x] SSE Event Streaming (live updates)
   - [x] Validation & Testing API
+  - [x] ConfigManager session fix (dictionary metadata storage)
 - [x] **Template System** - YAML templates seeded to database
 - [x] **Comprehensive Testing** - All APIs tested and verified
 - [x] **Development Pattern** - Documented for future robots
-- [x] Documentation updates
+- [x] **Full Pipeline Integration (Robot 1→2→3)** - Tested & working
+  - [x] End-to-end data flow verified
+  - [x] 30 videos analyzed with 0 failures
+  - [x] Opportunity scores 35-61 range
+- [x] Documentation updates with troubleshooting guide
 
 **Ready to Start:**
-- [ ] Robot 2 (SERP Scraper) - Pattern defined, ready to implement
+- [ ] Robot 4 (Format Classifier) - Pattern defined, ready to implement
 
 **Pending:**
-- [ ] Robot 3 (Metric Analyzer)
-- [ ] Robot 4 (Format Classifier)
-- [ ] React Dashboard
-- [ ] Full pipeline integration
+- [ ] React Dashboard with real-time configuration
+- [ ] Google Ads API developer token approval (for search volume data)
 
 ## Next Steps
 
-Now that Robots 1, 2, and 3 are complete:
-1. ✅ **Robot 2 (SERP Scraper)** - COMPLETE
-   - ✅ YouTube Data API v3 implementation
-   - ✅ ConfigManager and JobService integration
-   - ⚠️ Playwright scraping deferred (Python 3.13 compatibility issues)
-2. ✅ **Robot 3 (Metric Analyzer)** - COMPLETE
-   - ✅ Service layer with full business logic
-   - ✅ YouTube Data API integration
-   - ✅ 6-component scoring algorithm
-   - ✅ 24 configuration settings
-   - ⏳ Google Ads API awaiting developer token approval
-3. **Google Ads API Setup** - Apply for developer token (1-2 days)
-4. **Robot 4 (Format Classifier)** - Follow same pattern
-5. **React Dashboard** - Build with Supabase real-time features
-6. **Full Pipeline Integration** - End-to-end testing (Robot 1 → 2 → 3 → 4)
+Now that full pipeline (Robot 1→2→3) is working:
+1. **Robot 4 (Format Classifier)** - Follow established pattern
+   - Use `_get_credential()` pattern for API keys (OpenAI Whisper)
+   - Integrate with ConfigManager (avoid session issues - use dict metadata)
+   - Use JobService for progress tracking
+   - Add comprehensive configuration settings
+   - Thoroughly test before integrating into pipeline
+2. **Google Ads API Developer Token** - Submit application
+   - Enables search volume data in Robot 3
+   - Currently Robot 3 works without it (scores based on other 5 components)
+3. **React Dashboard** - Build with Supabase real-time features
+   - Real-time configuration management
+   - Live robot monitoring
+   - Opportunity score visualization
+   - Niche management UI
+4. **Production Deployment**
+   - Environment hardening
+   - API rate limiting
+   - Automated testing suite
+   - Monitoring and alerting
 
 ## Testing Summary
 
-All systems tested and verified (2025-11-11):
-- ✅ Template seeding (5 YAML templates loaded)
-- ✅ Niche CRUD operations (CREATE, READ, UPDATE, DELETE)
-- ✅ Settings management (CREATE, READ, DELETE)
-- ✅ Job monitoring endpoints
-- ✅ SSE event streaming (connection established)
-- ✅ Trailing slash handling fixed for all endpoints
-- ✅ Robot 1 integration with configuration system
+All systems tested and verified:
+- ✅ Template seeding (5 YAML templates loaded) - 2025-11-11
+- ✅ Niche CRUD operations (CREATE, READ, UPDATE, DELETE) - 2025-11-11
+- ✅ Settings management (CREATE, READ, DELETE) - 2025-11-11
+- ✅ Job monitoring endpoints - 2025-11-11
+- ✅ SSE event streaming (connection established) - 2025-11-11
+- ✅ Trailing slash handling fixed for all endpoints - 2025-11-11
+- ✅ Robot 1 integration with configuration system - 2025-11-11
+- ✅ **Full pipeline integration (Robot 1→2→3)** - 2025-11-13
+  - Robot 1: 5 topics discovered from Reddit
+  - Robot 2: 2 videos found and stored
+  - Robot 3: 30 videos analyzed, 0 failures
+  - API: Top 10 opportunities queryable with scores 50-61
+
+## Troubleshooting
+
+### Credential Loading Issues
+
+**Problem**: API credentials not working (empty strings, "not configured" errors)
+
+**Root Cause**: Credentials stored as empty strings in database override valid `.env` values
+
+**Solution Pattern** (see `src/robots/horizon_scanner.py:60-90`):
+```python
+def _get_credential(self, db_key: str, env_value: Optional[str], name: str) -> Optional[str]:
+    """
+    Get credential with proper fallback logic.
+
+    Priority:
+    1. Database (if set and non-empty)
+    2. Environment variable (from .env via settings)
+    """
+    # Try database first
+    db_value = self.config_manager.get(db_key, None, 'api_keys')
+
+    # Use database value if it exists and is non-empty
+    if db_value and isinstance(db_value, str) and db_value.strip():
+        logger.info(f"{name} loaded from database")
+        return db_value.strip()
+
+    # Fall back to environment
+    if env_value and isinstance(env_value, str) and env_value.strip():
+        logger.info(f"{name} loaded from environment (.env)")
+        return env_value.strip()
+
+    # Not found in either location
+    return None
+```
+
+**Usage**:
+```python
+client_id = self._get_credential('reddit.client_id', settings.REDDIT_CLIENT_ID, 'Reddit Client ID')
+client_secret = self._get_credential('reddit.client_secret', settings.REDDIT_CLIENT_SECRET, 'Reddit Client Secret')
+```
+
+**Debugging Credentials**:
+```bash
+# Check database credentials
+python scripts/check_db_credentials.py
+
+# Check environment settings
+python scripts/test_settings.py
+
+# Expected log output (when working):
+# "Reddit Client ID loaded from environment (.env)"
+# "Reddit Client Secret loaded from environment (.env)"
+```
+
+### ConfigManager Session Issues
+
+**Problem**: `DetachedInstanceError: Instance <AppSetting> is not bound to a Session`
+
+**Root Cause**: ConfigManager stored SQLAlchemy ORM objects in `_metadata` dict. When robots run as async background tasks, accessing ORM attributes (e.g., `metadata.category`) tries to lazy-load from a detached session.
+
+**Solution** (see `src/services/config_manager.py:86-91`):
+```python
+# WRONG - stores ORM object
+self._metadata[setting.key] = setting  # Will cause DetachedInstanceError
+
+# CORRECT - stores plain dictionary
+self._metadata[setting.key] = {
+    'category': setting.category,
+    'data_type': setting.data_type,
+    'requires_restart': setting.requires_restart,
+    'description': setting.description
+}
+```
+
+**Access Pattern**:
+```python
+# WRONG - attribute access on ORM object
+if metadata.category == 'api_keys':
+
+# CORRECT - dict.get() on plain dictionary
+if metadata.get('category') == 'api_keys':
+```
+
+**All Changes Required** (4 locations in config_manager.py):
+1. Line 86-91: Store dict in `_load_settings()`
+2. Line 116: Change to `metadata.get('category')`
+3. Line 140: Change to `metadata.get('category')`
+4. Line 378: Change to `metadata.get('requires_restart')`
+5. Line 412: Change to `metadata.get('requires_restart', False)`
+
+### Python Bytecode Cache Issues
+
+**Problem**: Code changes not taking effect, old bugs reappearing
+
+**Root Cause**: Python executing cached `.pyc` files instead of updated source code
+
+**Solution**:
+```bash
+# 1. Kill all Python processes
+taskkill //F //IM python.exe
+
+# 2. Clear bytecode cache
+rm -rf src/robots/__pycache__
+rm -rf src/services/__pycache__
+rm -rf src/__pycache__
+
+# 3. Restart with -B flag (disables bytecode writing)
+./venv/Scripts/python -B -m uvicorn src.main:app --reload --port 8001
+```
+
+**Prevention**: Always use `-B` flag during active development to disable bytecode caching.
 
 ## Important Changes from Original Design
 
@@ -359,6 +501,7 @@ All systems tested and verified (2025-11-11):
 
 ## Notes for Claude
 
+### General Guidelines
 - This is an **internal tool for personal use**
 - Build **incrementally** - one robot at a time
 - **Test thoroughly** before moving to next robot
@@ -369,3 +512,40 @@ All systems tested and verified (2025-11-11):
 - Implement proper **error handling** and **logging**
 - **React Dashboard** should be highly configurable and real-time
 - Leverage **Supabase features** for real-time updates and authentication
+
+### Critical Patterns (Lessons Learned)
+
+**1. Credential Loading (Database → Environment Fallback)**
+- ALWAYS implement `_get_credential()` helper for API keys
+- Database values take precedence IF non-empty
+- Environment variables (.env) are fallback
+- Log which source was used for debugging
+- Handle empty strings explicitly (`.strip()`)
+- See: `src/robots/horizon_scanner.py:60-90`
+
+**2. ConfigManager in Async Contexts (Session Management)**
+- NEVER store SQLAlchemy ORM objects in instance variables
+- ALWAYS extract primitive values or dictionaries immediately
+- Background tasks run in different async contexts
+- ORM lazy-loading fails on detached instances
+- Use `dict.get()` instead of attribute access for safety
+- See: `src/services/config_manager.py:86-91`
+
+**3. Python Bytecode Caching**
+- ALWAYS use `-B` flag during active development
+- Clear `__pycache__` directories when debugging stale code
+- Kill all Python processes before restarting
+- Bytecode cache can persist bugs even after code fixes
+
+**4. FastAPI Background Tasks**
+- Jobs run in separate async contexts from request handlers
+- Database sessions must be managed carefully
+- Log extensively for debugging async execution
+- ConfigManager singleton must be thread/async-safe
+
+**5. Testing Full Pipeline**
+- Test each robot independently first
+- Then test sequential pairs (1→2, 2→3)
+- Finally test complete pipeline (1→2→3)
+- Verify data persisted at each stage
+- Check API endpoints return expected results
