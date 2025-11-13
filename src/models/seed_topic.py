@@ -10,6 +10,7 @@ class SourceType(str, enum.Enum):
     """Source where the topic was discovered."""
     GOOGLE_TRENDS = "google_trends"
     REDDIT = "reddit"
+    GDELT = "gdelt"
     MANUAL = "manual"
 
 

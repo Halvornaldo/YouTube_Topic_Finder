@@ -28,6 +28,8 @@ class NicheConfig(Base, TimestampMixin):
     reddit_enabled = Column(Integer, default=1)  # Boolean
     reddit_weight = Column(Float, default=0.5)
     reddit_subreddits = Column(JSON, nullable=True)  # List of subreddits
+    gdelt_enabled = Column(Integer, default=1)  # Boolean
+    gdelt_weight = Column(Float, default=0.5)
 
     # Scoring thresholds
     min_search_volume = Column(Integer, nullable=True)
