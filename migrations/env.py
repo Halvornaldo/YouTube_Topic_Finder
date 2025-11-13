@@ -6,9 +6,14 @@ from sqlalchemy import pool
 from alembic import context
 import os
 import sys
+from dotenv import load_dotenv
 
 # Add the project root to the path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+project_root = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, project_root)
+
+# Load .env file
+load_dotenv(os.path.join(project_root, '.env'))
 
 # Import all models so Alembic can detect them
 from src.models.base import Base

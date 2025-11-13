@@ -34,7 +34,7 @@ class SeedTopic(Base, TimestampMixin):
 
     # Core fields
     topic = Column(String(500), nullable=False, index=True)
-    source = Column(Enum(SourceType), nullable=False, index=True)
+    source = Column(Enum(SourceType, values_callable=lambda x: [e.value for e in x]), nullable=False, index=True)
     niche = Column(String(100), nullable=False, index=True)
 
     # Trend metrics

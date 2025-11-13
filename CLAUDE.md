@@ -2,19 +2,32 @@
 
 ## Project Overview
 
-YouTube Topic Finder is an automated topic discovery tool using a 4-robot microservice architecture to identify high-opportunity YouTube content ideas. Now powered by Supabase cloud infrastructure with plans for a highly configurable React dashboard.
+YouTube Topic Finder is an automated topic discovery tool using a 5-robot microservice architecture to identify high-opportunity YouTube content ideas. Now powered by Supabase cloud infrastructure with plans for a highly configurable React dashboard.
+
+**Key Strategic Change:** Added Robot 1.5 (Topic Scorer) to filter topics by monetization potential using LLM analysis, preventing wasted resources on low-CPM viral content. Removed GDELT (unreliable) and Google Trends (404 errors), focusing exclusively on Reddit with improved logarithmic scoring.
 
 ## Architecture
 
-### 4-Robot Microservice System
+### 5-Robot Microservice System
 
 1. **Robot 1 - Horizon Scanner** (`src/robots/horizon_scanner.py`) ✅ COMPLETE & TESTED
    - Discovers trending "seed topics" from external sources
-   - Data Sources: Google Trends (pytrends - currently 404), Reddit (praw - working)
+   - Data Sources: ~~Google Trends~~ (removed - unreliable), ~~GDELT~~ (removed - low-quality), Reddit (praw - working with logarithmic scoring)
    - Credential Loading: Database → Environment fallback pattern (see Troubleshooting section)
-   - Output: Seed topics stored in `seed_topics` table
+   - Output: Seed topics stored in `seed_topics` table with status="pending"
    - Status: Successfully saving data to Supabase, full pipeline tested
    - Details: See `src/robots/horizon_scanner.py:60-90` for credential helper pattern
+
+1.5. **Robot 1.5 - Topic Scorer** (`src/robots/topic_scorer.py`) ✅ COMPLETE (Awaiting Testing)
+   - LLM-powered filter that scores topics for monetization potential
+   - Uses Google Gemini (gemini-2.0-flash-exp) with TrendConverter prompt
+   - Scoring: Weighted combination (70% LLM score, 30% raw social engagement)
+   - Auto-rejects topics below threshold (default: 60/100) or scoring 0
+   - Output: Updates `seed_topics` with llm_score, final_score, profit_angle, status="scored" or "rejected"
+   - Cost: ~70% cheaper than OpenAI ($0.015 vs $0.150 per 1M tokens)
+   - Configuration: 3 hot-reloadable settings (batch_size, llm_weight, min_llm_score)
+   - Status: Implementation complete, endpoint added, awaiting end-to-end testing
+   - Details: See `docs/ROBOT_1_5_IMPLEMENTATION.md`
 
 2. **Robot 2 - SERP Scraper** (`src/robots/serp_scraper.py`) ✅ COMPLETE & TESTED
    - Scrapes YouTube search results for candidate videos
@@ -45,6 +58,7 @@ YouTube Topic Finder is an automated topic discovery tool using a 4-robot micros
 The system is designed to be **fully configurable from a React dashboard**. Configuration infrastructure is built **incrementally** alongside each robot:
 
 - **Robot 1 (Horizon Scanner)**: Full configuration support ✅ COMPLETE
+- **Robot 1.5 (Topic Scorer)**: Full configuration support ✅ COMPLETE (3 settings)
 - **Robot 2 (SERP Scraper)**: Full configuration support ✅ COMPLETE
 - **Robot 3 (Metric Analyzer)**: Full configuration support ✅ COMPLETE (24 settings)
 - **Robot 4 (Format Classifier)**: Will receive same configuration treatment
@@ -283,6 +297,7 @@ GOOGLE_ADS_DEVELOPER_TOKEN=your_google_ads_token
 REDDIT_CLIENT_ID=your_reddit_client_id
 REDDIT_CLIENT_SECRET=your_reddit_client_secret
 OPENAI_API_KEY=your_openai_api_key
+GEMINI_API_KEY=your_gemini_api_key  # Robot 1.5 LLM
 
 # Configuration
 DEFAULT_NICHE=ai_tech
@@ -298,8 +313,19 @@ LOG_LEVEL=INFO
 - [x] FastAPI backend foundation
 - [x] **Robot 1 (Horizon Scanner)** - Fully integrated and tested
   - [x] Credential loading pattern (database → environment fallback)
-  - [x] Reddit integration working
-  - [x] Saving topics to Supabase
+  - [x] Reddit integration with logarithmic scoring
+  - [x] GDELT removed (unreliable)
+  - [x] Google Trends removed (404 errors)
+  - [x] Saving topics to Supabase with status="pending"
+- [x] **Robot 1.5 (Topic Scorer)** - Implementation complete (awaiting testing)
+  - [x] LLM service with Google Gemini API
+  - [x] TrendConverter prompt for monetization scoring
+  - [x] Weighted scoring algorithm (70% LLM, 30% raw)
+  - [x] Auto-rejection logic (below threshold or score=0)
+  - [x] 3 configuration settings (hot-reloadable)
+  - [x] API endpoint (/api/robots/topic-scorer/run)
+  - [x] Database migration for LLM columns
+  - [x] Comprehensive documentation (docs/ROBOT_1_5_IMPLEMENTATION.md)
 - [x] **Robot 2 (SERP Scraper)** - Fully integrated and tested
   - [x] YouTube API integration
   - [x] Video discovery and storage
@@ -334,8 +360,17 @@ LOG_LEVEL=INFO
 
 ## Next Steps
 
-Now that full pipeline (Robot 1→2→3) is working:
-1. **Robot 4 (Format Classifier)** - Follow established pattern
+Now that Robot 1.5 is implemented:
+1. **Test Robot 1.5 (Topic Scorer)** - Validate end-to-end pipeline
+   - Run Robot 1 to discover topics (status="pending")
+   - Run Robot 1.5 to score topics (status="scored" or "rejected")
+   - Verify LLM scoring, profit angles, and weighted scores in database
+   - Test with different niches and batch sizes
+   - Monitor Gemini API costs and response times
+2. **Integrate Robot 1.5 into Pipeline** - Update Robot 2 to filter by status="scored"
+   - Robot 2 should only scrape videos for scored topics (not rejected)
+   - Full pipeline: Robot 1 → 1.5 → 2 → 3
+3. **Robot 4 (Format Classifier)** - Follow established pattern
    - Use `_get_credential()` pattern for API keys (OpenAI Whisper)
    - Integrate with ConfigManager (avoid session issues - use dict metadata)
    - Use JobService for progress tracking

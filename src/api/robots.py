@@ -44,6 +44,22 @@ class SerpScrapeResponse(BaseModel):
     topics_found: Optional[int] = None
 
 
+class TopicScorerRequest(BaseModel):
+    """Request to run Robot 1.5 (Topic Scorer)."""
+    niche: Optional[str] = Field(None, description="Niche name to filter topics (optional)")
+    batch_size: Optional[int] = Field(None, description="Number of topics to score", gt=0, le=100)
+    force_rescore: bool = Field(False, description="Re-score already scored topics")
+
+
+class TopicScorerResponse(BaseModel):
+    """Response from Robot 1.5."""
+    status: str
+    message: str
+    topics_scored: int
+    topics_rejected: int
+    topics_accepted: int
+
+
 class MetricAnalysisRequest(BaseModel):
     """Request to run Robot 3 (Metric Analyzer)."""
     video_ids: Optional[List[int]] = Field(None, description="Specific video IDs to analyze")
@@ -168,6 +184,121 @@ async def run_horizon_scanner(
         raise
     except Exception as e:
         logger.error(f"Error queueing horizon scanner: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _run_topic_scorer_async(
+    db: Session,
+    niche: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    force_rescore: bool = False
+):
+    """
+    Helper function to run Topic Scorer asynchronously.
+
+    Args:
+        db: Database session
+        niche: Optional niche filter
+        batch_size: Number of topics to score
+        force_rescore: Re-score already scored topics
+    """
+    try:
+        from src.robots.topic_scorer import TopicScorer
+
+        scorer = TopicScorer(db)
+        result = await scorer.run(niche, batch_size, force_rescore)
+
+        logger.info(f"Topic Scorer completed: {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in background topic scorer task: {e}", exc_info=True)
+        raise
+
+
+@router.post("/topic-scorer/run", response_model=TopicScorerResponse)
+async def run_topic_scorer(
+    request: TopicScorerRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Run Robot 1.5: Topic Scorer.
+
+    Evaluates seed topics using LLM (Gemini) to score their monetization potential.
+    Topics are scored 0-100 based on:
+    - High-CPM niche potential
+    - Tier-1 audience appeal
+    - Commercial intent
+    - Advertiser-friendliness
+    - Searchability on YouTube
+
+    Topics scoring 0 are auto-rejected. Final score is a weighted combination
+    of raw_score (from Robot 1) and llm_score (from LLM).
+
+    This robot should be run after Robot 1 (Horizon Scanner) discovers topics,
+    and before Robot 2 (SERP Scraper) processes them.
+
+    Returns immediately. The scoring runs in the background.
+
+    Args:
+        request: Scoring request with optional niche, batch_size, force_rescore
+        background_tasks: FastAPI background tasks
+        db: Database session
+
+    Returns:
+        Response with summary of scoring task
+    """
+    try:
+        from src.models.seed_topic import SeedTopic
+        from sqlalchemy import and_
+
+        # Count pending topics
+        query = db.query(SeedTopic)
+        if request.niche:
+            query = query.filter(SeedTopic.niche == request.niche)
+
+        if not request.force_rescore:
+            query = query.filter(
+                and_(
+                    SeedTopic.status == "pending",
+                    SeedTopic.llm_score.is_(None)
+                )
+            )
+
+        pending_count = query.count()
+
+        if pending_count == 0:
+            return TopicScorerResponse(
+                status="completed",
+                message="No topics to score",
+                topics_scored=0,
+                topics_rejected=0,
+                topics_accepted=0
+            )
+
+        # Run scorer in background
+        background_tasks.add_task(
+            _run_topic_scorer_async,
+            db,
+            request.niche,
+            request.batch_size,
+            request.force_rescore
+        )
+
+        niche_msg = f" for niche '{request.niche}'" if request.niche else ""
+        return TopicScorerResponse(
+            status="running",
+            message=f"Topic scorer started{niche_msg}. Found {pending_count} topics to score.",
+            topics_scored=0,
+            topics_rejected=0,
+            topics_accepted=0
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error queueing topic scorer: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

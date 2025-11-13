@@ -3,7 +3,7 @@
 import logging
 import asyncio
 import os
-import requests
+import math
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -35,7 +35,6 @@ class HorizonScanner:
     Discovers trending "seed topics" from:
     - Google Trends (pytrends) - Currently has 404 errors
     - Reddit (praw) - Working
-    - GDELT (Global Database of Events, Language and Tone) - New, free alternative
 
     These seed topics will be used by Robot 2 to search for YouTube videos.
 
@@ -57,7 +56,6 @@ class HorizonScanner:
         self.config_manager = ConfigManager(db_session)
         self.google_trends_client: Optional[TrendReq] = None
         self.reddit_client: Optional[praw.Reddit] = None
-        self.gdelt_enabled: bool = False
         self.job_id: Optional[int] = None
 
     def _get_credential(self, db_key: str, env_value: Optional[str], name: str) -> Optional[str]:
@@ -135,20 +133,6 @@ class HorizonScanner:
             logger.error(f"Failed to initialize Reddit: {e}")
             self.reddit_client = None
 
-    def _init_gdelt(self):
-        """Initialize GDELT (no authentication required)."""
-        enabled = self.config_manager.get('robot1.gdelt.enabled', True, 'robot1')
-
-        if not enabled:
-            logger.warning("GDELT disabled in settings")
-            self.gdelt_enabled = False
-            return
-
-        # GDELT is a public API, no authentication needed
-        # Just set the flag to indicate it's ready to use
-        self.gdelt_enabled = True
-        logger.info("GDELT initialized (public API, no auth required)")
-
     async def run(self, niche_id: int, max_topics: Optional[int] = None) -> Dict:
         """
         Run the Horizon Scanner for a specific niche.
@@ -185,8 +169,7 @@ class HorizonScanner:
                 'niche_name': niche_config.niche_name,
                 'max_topics': max_topics,
                 'google_trends_enabled': niche_config.google_trends_weight > 0,
-                'reddit_enabled': niche_config.reddit_weight > 0,
-                'gdelt_enabled': niche_config.gdelt_weight > 0
+                'reddit_enabled': niche_config.reddit_weight > 0
             }
         )
         job.start()
@@ -219,7 +202,6 @@ class HorizonScanner:
             # Initialize clients
             self._init_google_trends()
             self._init_reddit()
-            self._init_gdelt()
 
             topics_found = []
 
@@ -258,21 +240,6 @@ class HorizonScanner:
                 self.db.commit()
                 await broadcast_job_progress(job.id, 70, f"Found {len(reddit_topics)} topics from Reddit")
 
-            # Scan GDELT
-            if niche_config.gdelt_weight > 0 and self.gdelt_enabled:
-                job.update_progress(75, "Scanning GDELT news database")
-                self.db.commit()
-                await broadcast_job_progress(job.id, 75, "Scanning GDELT news database")
-
-                logger.info("Scanning GDELT...")
-                gdelt_topics = await self._scan_gdelt(niche_config)
-                topics_found.extend(gdelt_topics)
-                logger.info(f"Found {len(gdelt_topics)} topics from GDELT")
-
-                job.update_progress(80, f"Found {len(gdelt_topics)} topics from GDELT")
-                self.db.commit()
-                await broadcast_job_progress(job.id, 80, f"Found {len(gdelt_topics)} topics from GDELT")
-
             # Save topics to database
             job.update_progress(85, "Saving topics to database")
             self.db.commit()
@@ -286,8 +253,7 @@ class HorizonScanner:
                 "topics_found": len(topics_found),
                 "topics_saved": saved_count,
                 "google_trends": len([t for t in topics_found if t["source"] == SourceType.GOOGLE_TRENDS]),
-                "reddit": len([t for t in topics_found if t["source"] == SourceType.REDDIT]),
-                "gdelt": len([t for t in topics_found if t["source"] == SourceType.GDELT]),
+                "reddit": len([t for t in topics_found if t["source"] == SourceType.REDDIT])
             }
             job.complete(result_summary=result_summary)
             self.db.commit()
@@ -440,10 +406,14 @@ class HorizonScanner:
                     # Get hot posts
                     for post in subreddit.hot(limit=25):
                         if post.score >= min_upvotes and not post.stickied:
+                            # Logarithmic scoring: 50 upvotes=30, 500=65, 5000=95, 50000=100
+                            score_ratio = max(1, post.score / min_upvotes)
+                            reddit_score = min(100.0, 30 + (math.log10(score_ratio) * 35))
+
                             topic_data = {
                                 "topic": post.title,
                                 "source": SourceType.REDDIT,
-                                "trend_score": min(100.0, (post.score / min_upvotes) * 50),
+                                "trend_score": reddit_score,
                                 "trend_status": TrendStatus.PEAK if post.score > min_upvotes * 10 else TrendStatus.RISING,
                                 "source_url": f"https://reddit.com{post.permalink}",
                                 "source_metadata": {
@@ -468,10 +438,14 @@ class HorizonScanner:
                     # Get top posts
                     for post in subreddit.top(time_filter=time_filter, limit=25):
                         if post.score >= min_upvotes and not post.stickied:
+                            # Logarithmic scoring: 50 upvotes=30, 500=65, 5000=95, 50000=100
+                            score_ratio = max(1, post.score / min_upvotes)
+                            reddit_score = min(100.0, 30 + (math.log10(score_ratio) * 35))
+
                             topics.append({
                                 "topic": post.title,
                                 "source": SourceType.REDDIT,
-                                "trend_score": min(100.0, (post.score / min_upvotes) * 50),
+                                "trend_score": reddit_score,
                                 "trend_status": TrendStatus.PEAK,
                                 "source_url": f"https://reddit.com{post.permalink}",
                                 "source_metadata": {
@@ -489,121 +463,6 @@ class HorizonScanner:
 
         except Exception as e:
             logger.error(f"Error scanning Reddit: {e}", exc_info=True)
-
-        return topics
-
-    async def _scan_gdelt(self, config: NicheConfig) -> List[Dict]:
-        """
-        Scan GDELT (Global Database of Events, Language and Tone) for trending topics.
-
-        GDELT provides free, unlimited access to global news coverage and trending themes.
-        No authentication required.
-
-        Args:
-            config: Niche configuration from database
-
-        Returns:
-            List of discovered topics
-        """
-        topics = []
-
-        try:
-            # GDELT 2.0 Doc API endpoint
-            base_url = "https://api.gdeltproject.org/api/v2/doc/doc"
-
-            # Get timespan from ConfigManager (default: last 3 days)
-            timespan = self.config_manager.get('robot1.gdelt.timespan', '3d', 'robot1')
-            max_records = self.config_manager.get('robot1.gdelt.max_records', 75, 'robot1')
-
-            # Process keywords from niche configuration
-            keywords = config.keywords[:5] if config.keywords else []  # Limit to 5 keywords
-
-            if not keywords:
-                logger.warning("No keywords configured for GDELT search")
-                return topics
-
-            for keyword in keywords:
-                try:
-                    # Build API request
-                    params = {
-                        'query': keyword,
-                        'mode': 'artlist',  # Get list of articles
-                        'maxrecords': max_records,
-                        'format': 'json',
-                        'timespan': timespan,
-                        'sort': 'hybridrel'  # Sort by relevance
-                    }
-
-                    # Make request to GDELT API
-                    response = requests.get(base_url, params=params, timeout=15)
-
-                    if response.status_code == 200:
-                        data = response.json()
-
-                        # Extract articles
-                        articles = data.get('articles', [])
-
-                        # Get min tone threshold (articles with positive/neutral tone)
-                        min_tone = self.config_manager.get('robot1.gdelt.min_tone', -5.0, 'robot1')
-
-                        for article in articles[:20]:  # Limit to top 20 per keyword
-                            try:
-                                title = article.get('title', '').strip()
-                                url = article.get('url', '')
-                                seendate = article.get('seendate', '')
-                                tone = float(article.get('tone', 0))
-                                domain = article.get('domain', '')
-
-                                # Filter by tone (avoid overly negative news)
-                                if tone < min_tone:
-                                    continue
-
-                                if title and len(title) > 10:  # Skip very short titles
-                                    # Calculate trend score based on recency and tone
-                                    # GDELT seendate format: YYYYMMDDHHMMSS
-                                    trend_score = min(100.0, 50 + (tone * 2))  # Base 50, adjust by tone
-
-                                    topic_data = {
-                                        "topic": title,
-                                        "source": SourceType.GDELT,
-                                        "trend_score": trend_score,
-                                        "trend_status": TrendStatus.RISING,
-                                        "source_url": url,
-                                        "source_metadata": {
-                                            "domain": domain,
-                                            "seendate": seendate,
-                                            "tone": tone,
-                                            "keyword": keyword,
-                                            "timespan": timespan
-                                        }
-                                    }
-                                    topics.append(topic_data)
-
-                                    # Broadcast topic discovered
-                                    if self.job_id:
-                                        await broadcast_topic_discovered(
-                                            topic=title[:100],  # Truncate for event
-                                            source="gdelt",
-                                            trend_score=trend_score,
-                                            job_id=self.job_id
-                                        )
-
-                            except Exception as e:
-                                logger.warning(f"Error processing GDELT article: {e}")
-                                continue
-
-                    else:
-                        logger.warning(f"GDELT API returned status {response.status_code} for keyword '{keyword}'")
-
-                    # Small delay to avoid rate limiting (though GDELT has no rate limits)
-                    await asyncio.sleep(0.5)
-
-                except Exception as e:
-                    logger.warning(f"Error querying GDELT for keyword '{keyword}': {e}")
-                    continue
-
-        except Exception as e:
-            logger.error(f"Error scanning GDELT: {e}", exc_info=True)
 
         return topics
 

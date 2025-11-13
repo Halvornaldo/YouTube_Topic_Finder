@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     REDDIT_CLIENT_SECRET: Optional[str] = Field(default=None)
     REDDIT_USER_AGENT: str = Field(default="YouTubeTopicFinder/1.0")
     OPENAI_API_KEY: Optional[str] = Field(default=None)
+    GEMINI_API_KEY: Optional[str] = Field(default=None)  # Robot 1.5 LLM
 
     # Configuration
     DEFAULT_NICHE: str = Field(default="ai_tech")
