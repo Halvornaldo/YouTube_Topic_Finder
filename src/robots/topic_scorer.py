@@ -16,6 +16,7 @@ from datetime import datetime
 from src.models.seed_topic import SeedTopic
 from src.services.llm_service import LLMService, LLMServiceError
 from src.services.config_manager import ConfigManager
+from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +76,12 @@ class TopicScorer:
         llm_weight = config_snapshot.get("robot1_5_llm_weight", 0.7)
         raw_weight = 1.0 - llm_weight
         min_llm_score = config_snapshot.get("robot1_5_min_llm_score", 60.0)
+        llm_model = config_snapshot.get("robot1_5_llm_model", "gemini-2.0-flash-exp")
 
-        # Initialize LLM service
+        # Initialize LLM service with API key and model from settings
         try:
-            self.llm_service = LLMService()
-            logger.info("LLM service initialized successfully")
+            self.llm_service = LLMService(api_key=settings.GEMINI_API_KEY, model=llm_model)
+            logger.info(f"LLM service initialized successfully with model: {llm_model}")
         except LLMServiceError as e:
             logger.error(f"Failed to initialize LLM service: {e}")
             raise
@@ -169,20 +171,13 @@ class TopicScorer:
 
     async def _load_config(self) -> Dict:
         """Load configuration for Robot 1.5."""
-        # Get all settings starting with robot1_5
-        settings = self.config_manager.get_settings_by_prefix("robot1_5")
-
-        config = {}
-        for setting in settings:
-            # Convert value to appropriate type
-            if setting.value_type == "int":
-                config[setting.key] = int(setting.value)
-            elif setting.value_type == "float":
-                config[setting.key] = float(setting.value)
-            elif setting.value_type == "bool":
-                config[setting.key] = setting.value.lower() == "true"
-            else:
-                config[setting.key] = setting.value
+        # Get individual settings using ConfigManager.get()
+        config = {
+            "robot1_5_batch_size": self.config_manager.get("robot1_5_batch_size", 20),
+            "robot1_5_llm_weight": self.config_manager.get("robot1_5_llm_weight", 0.7),
+            "robot1_5_min_llm_score": self.config_manager.get("robot1_5_min_llm_score", 60.0),
+            "robot1_5_llm_model": self.config_manager.get("robot1_5_llm_model", "gemini-2.0-flash-exp")
+        }
 
         logger.debug(f"Robot 1.5 configuration loaded: {config}")
         return config
@@ -253,10 +248,11 @@ class TopicScorer:
         config_snapshot = await self._load_config()
         llm_weight = config_snapshot.get("robot1_5_llm_weight", 0.7)
         raw_weight = 1.0 - llm_weight
+        llm_model = config_snapshot.get("robot1_5_llm_model", "gemini-2.0-flash-exp")
 
         # Initialize LLM service if needed
         if not self.llm_service:
-            self.llm_service = LLMService()
+            self.llm_service = LLMService(api_key=settings.GEMINI_API_KEY, model=llm_model)
 
         # Score topic
         result = await self.llm_service.score_topic(

@@ -1,6 +1,6 @@
 """Seed topics model - topics discovered by Robot 1 (Horizon Scanner)."""
 
-from sqlalchemy import Column, String, Float, Integer, Text, Enum, JSON
+from sqlalchemy import Column, String, Float, Integer, Text, Enum, JSON, DateTime
 from sqlalchemy.orm import relationship
 import enum
 from src.models.base import Base, TimestampMixin
@@ -8,10 +8,10 @@ from src.models.base import Base, TimestampMixin
 
 class SourceType(str, enum.Enum):
     """Source where the topic was discovered."""
-    GOOGLE_TRENDS = "google_trends"
-    REDDIT = "reddit"
-    GDELT = "gdelt"
-    MANUAL = "manual"
+    GOOGLE_TRENDS = "GOOGLE_TRENDS"
+    REDDIT = "REDDIT"
+    GDELT = "GDELT"
+    MANUAL = "MANUAL"
 
 
 class TrendStatus(str, enum.Enum):
@@ -51,6 +51,16 @@ class SeedTopic(Base, TimestampMixin):
 
     # Processing status
     processed = Column(Integer, default=0)  # 0=new, 1=scraped, 2=analyzed, 3=completed
+    status = Column(String(20), server_default='pending')  # pending, scored, rejected (Robot 1.5)
+
+    # Robot 1.5 (Topic Scorer) fields - LLM-based monetization scoring
+    raw_score = Column(Float, nullable=True)  # Original engagement score (0-100)
+    llm_score = Column(Float, nullable=True)  # LLM monetization score (0-100)
+    final_score = Column(Float, nullable=True)  # Weighted combination of raw + LLM
+    llm_reasoning = Column(Text, nullable=True)  # LLM explanation for the score
+    profit_angle = Column(Text, nullable=True)  # Monetization strategy from LLM
+    scored_at = Column(DateTime, nullable=True)  # When LLM scoring was performed
+    llm_provider = Column(String(50), nullable=True)  # Which LLM was used (e.g., 'gemini-2.0-flash')
 
     # Relationships
     search_queries = relationship("SearchQuery", back_populates="seed_topic", cascade="all, delete-orphan")
